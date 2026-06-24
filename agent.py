@@ -5,6 +5,7 @@ import json
 import requests
 import config
 import db
+import feeds
 import material
 import translate
 import pipeline
@@ -48,6 +49,22 @@ def _t_stats():
         return json.dumps(db.stats(c), ensure_ascii=False)
 
 
+def _t_trending_by_lang(language="", limit=8):
+    """实时拉取 GitHub 当日趋势（可按语言筛选），不依赖本地库。"""
+    lang = (language or "").strip().lower()
+    route = f"/github/trending/daily/{lang}" if lang else "/github/trending/daily/any"
+    try:
+        rows = feeds.fetch(route, limit)
+    except Exception as e:
+        return f"拉取趋势失败（语言={lang or 'any'}）：{e}"
+    if not rows:
+        return f"GitHub 当日 {lang or '全部'} 趋势暂时没有结果。"
+    label = f"{language} " if lang else ""
+    return f"GitHub 当日 {label}热门项目：\n" + "\n".join(
+        f"- {t}（{u}）" for t, u, _ in rows
+    )
+
+
 def _t_deep_dive(item_id=None, url=None):
     title, link = None, url
     if item_id is not None:
@@ -67,6 +84,7 @@ TOOLS_IMPL = {
     "list_pending": _t_list_pending,
     "search": _t_search,
     "stats": _t_stats,
+    "trending_by_lang": _t_trending_by_lang,
     "deep_dive": _t_deep_dive,
 }
 
@@ -83,6 +101,9 @@ TOOLS_SCHEMA = [
     {"type": "function", "function": {
         "name": "stats", "description": "返回各状态(pending/published/discarded)的数量统计",
         "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "trending_by_lang", "description": "实时查询GitHub当日趋势热门项目，可按编程语言筛选(如rust/python/go/typescript)。用户想看某语言/某主题的最新热点项目时用这个，不依赖本地库",
+        "parameters": {"type": "object", "properties": {"language": {"type": "string", "description": "编程语言,如 rust。留空则查全部语言"}, "limit": {"type": "integer", "description": "返回条数,默认8"}}}}},
     {"type": "function", "function": {
         "name": "deep_dive", "description": "对某个项目/链接深入了解：抓README或正文并生成中文汇总。可传库里的item_id或直接传url",
         "parameters": {"type": "object", "properties": {"item_id": {"type": "integer"}, "url": {"type": "string"}}}}},
