@@ -101,43 +101,69 @@ def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="Markd
     )
 
 
-def stream_to_message(chunks, header="", min_interval=1.5, chat_id=None):
-    """流式渲染：先发占位消息，随增量节流编辑（打字机效果），结束后用 HTML 定稿。
-    chunks: 产出增量 Markdown 文本的迭代器。返回最终完整文本。"""
-    import time
-    chat_id = chat_id or config.TELEGRAM_CHAT_ID
-    msg = send_message(header + "⏳ 生成中…", markdown=False, chat_id=chat_id)
-    mid = msg["message_id"]
-    buf = []
-    last_edit = 0.0
-    last_shown = None
+def send_message_draft(draft_id, text, chat_id=None, parse_mode=None):
+    """原生流式草稿（Bot API 9.5）：同一 draft_id 持续推入，客户端平滑打字渲染。
+    draft_id 必须非零且本轮流式全程一致。text 为当前累积全文。"""
+    return _call(
+        "sendMessageDraft",
+        chat_id=chat_id or config.TELEGRAM_CHAT_ID,
+        draft_id=draft_id,
+        text=text,
+        parse_mode=parse_mode,
+    )
 
-    def _flush(final=False):
-        nonlocal last_edit, last_shown
+
+def stream_to_message(chunks, header="", min_interval=0.4, chat_id=None):
+    """原生流式：用 sendMessageDraft 高频推草稿（无闪烁打字机），结束后 sendMessage 用 HTML 定稿落地。
+    若草稿接口不可用则降级为 editMessageText 编辑。chunks 产出增量 Markdown，返回完整文本。"""
+    import time
+    import random
+    chat_id = chat_id or config.TELEGRAM_CHAT_ID
+    draft_id = random.getrandbits(31) or 1  # 非零唯一 ID
+    buf = []
+    last_push = 0.0
+    use_draft = True
+    fallback_mid = None  # 降级模式下的占位消息 id
+
+    def _push():
+        nonlocal last_push, use_draft, fallback_mid
         body = "".join(buf)
         if not body:
             return
-        # 流式中途用纯文本编辑（避免半截标签导致 HTML 解析失败）；定稿用 HTML 渲染
-        if final:
-            text, pm = md_to_tg_html(header + body), "HTML"
-        else:
-            text, pm = (header + body + " ▌"), None
-        if text == last_shown:
-            return
+        # 草稿期用纯文本（避免半截 Markdown/HTML 标签），定稿才渲染
+        text = header + body
         try:
-            edit_message(chat_id, mid, text, parse_mode=pm)
-            last_shown = text
-            last_edit = time.time()
+            if use_draft:
+                send_message_draft(draft_id, text, chat_id=chat_id)
+            else:
+                edit_message(chat_id, fallback_mid, text + " ▌", parse_mode=None)
         except RuntimeError as e:
-            if "not modified" not in str(e):
+            if use_draft:  # 草稿不被支持 → 一次性降级到编辑模式
+                use_draft = False
+                fallback_mid = send_message(text + " ▌", markdown=False, chat_id=chat_id)["message_id"]
+            elif "not modified" not in str(e):
                 raise
+        last_push = time.time()
 
     for ch in chunks:
         buf.append(ch)
-        if time.time() - last_edit >= min_interval:
-            _flush()
-    _flush(final=True)
-    return "".join(buf)
+        if time.time() - last_push >= min_interval:
+            _push()
+    # 定稿：HTML 渲染的正式消息落地（草稿会平滑隐去）
+    final = "".join(buf)
+    send_message(md_to_tg_html(header + final), parse_mode="HTML", chat_id=chat_id)
+    if use_draft:
+        # 清空残留草稿（空 text）
+        try:
+            send_message_draft(draft_id, "", chat_id=chat_id)
+        except RuntimeError:
+            pass
+    elif fallback_mid:
+        try:
+            edit_message(chat_id, fallback_mid, md_to_tg_html(header + final), parse_mode="HTML")
+        except RuntimeError:
+            pass
+    return final
 
 
 def answer_callback(callback_id, text=""):
