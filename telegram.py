@@ -102,67 +102,72 @@ def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="Markd
 
 
 def send_message_draft(draft_id, text, chat_id=None, parse_mode=None):
-    """原生流式草稿（Bot API 9.5）：同一 draft_id 持续推入，客户端平滑打字渲染。
-    draft_id 必须非零且本轮流式全程一致。text 为当前累积全文。"""
+    """纯文本流式草稿（Bot API 9.5）：同一 draft_id 持续推入，客户端平滑打字。"""
     return _call(
         "sendMessageDraft",
         chat_id=chat_id or config.TELEGRAM_CHAT_ID,
-        draft_id=draft_id,
-        text=text,
-        parse_mode=parse_mode,
+        draft_id=draft_id, text=text, parse_mode=parse_mode,
+    )
+
+
+def send_rich_message_draft(draft_id, markdown, chat_id=None):
+    """富文本流式草稿（Bot API 10.1）：rich_message.markdown 服务端原生渲染，
+    且容忍流式中途未闭合的代码块/表格，不会 400。"""
+    return _call(
+        "sendRichMessageDraft",
+        chat_id=chat_id or config.TELEGRAM_CHAT_ID,
+        draft_id=draft_id, rich_message={"markdown": markdown},
+    )
+
+
+def send_rich_message(markdown, chat_id=None):
+    """发送原生富文本消息（Bot API 10.1）：标题/表格/代码块由服务端渲染。"""
+    return _call(
+        "sendRichMessage",
+        chat_id=chat_id or config.TELEGRAM_CHAT_ID,
+        rich_message={"markdown": markdown},
     )
 
 
 def stream_to_message(chunks, header="", min_interval=0.4, chat_id=None):
-    """原生流式：用 sendMessageDraft 高频推草稿（无闪烁打字机），结束后 sendMessage 用 HTML 定稿落地。
-    若草稿接口不可用则降级为 editMessageText 编辑。chunks 产出增量 Markdown，返回完整文本。"""
-    import time
-    import random
+    """原生富文本流式：sendRichMessageDraft 高频推草稿（无闪烁、原生渲染、容忍半截 markdown），
+    结束后 sendRichMessage 定稿落地。富文本不可用时逐级降级到纯文本草稿 / HTML。
+    chunks 产出增量 Markdown，返回完整文本。"""
+    import time, random
     chat_id = chat_id or config.TELEGRAM_CHAT_ID
     draft_id = random.getrandbits(31) or 1  # 非零唯一 ID
     buf = []
     last_push = 0.0
-    use_draft = True
-    fallback_mid = None  # 降级模式下的占位消息 id
+    mode = "rich"  # rich -> plain（草稿降级）
 
     def _push():
-        nonlocal last_push, use_draft, fallback_mid
+        nonlocal last_push, mode
         body = "".join(buf)
         if not body:
             return
-        # 草稿期用纯文本（避免半截 Markdown/HTML 标签），定稿才渲染
-        text = header + body
+        md = header + body
         try:
-            if use_draft:
-                send_message_draft(draft_id, text, chat_id=chat_id)
+            if mode == "rich":
+                send_rich_message_draft(draft_id, md, chat_id=chat_id)
             else:
-                edit_message(chat_id, fallback_mid, text + " ▌", parse_mode=None)
-        except RuntimeError as e:
-            if use_draft:  # 草稿不被支持 → 一次性降级到编辑模式
-                use_draft = False
-                fallback_mid = send_message(text + " ▌", markdown=False, chat_id=chat_id)["message_id"]
-            elif "not modified" not in str(e):
-                raise
+                send_message_draft(draft_id, md, chat_id=chat_id)  # 纯文本，免半截标签报错
+        except RuntimeError:
+            if mode == "rich":   # 富文本草稿不支持 → 降级纯文本草稿
+                mode = "plain"
         last_push = time.time()
 
     for ch in chunks:
         buf.append(ch)
         if time.time() - last_push >= min_interval:
             _push()
-    # 定稿：HTML 渲染的正式消息落地（草稿会平滑隐去）
+
+    # 定稿：优先原生富文本，失败再退 HTML
     final = "".join(buf)
-    send_message(md_to_tg_html(header + final), parse_mode="HTML", chat_id=chat_id)
-    if use_draft:
-        # 清空残留草稿（空 text）
-        try:
-            send_message_draft(draft_id, "", chat_id=chat_id)
-        except RuntimeError:
-            pass
-    elif fallback_mid:
-        try:
-            edit_message(chat_id, fallback_mid, md_to_tg_html(header + final), parse_mode="HTML")
-        except RuntimeError:
-            pass
+    md = header + final
+    try:
+        send_rich_message(md, chat_id=chat_id)
+    except RuntimeError:
+        send_message(md_to_tg_html(md), parse_mode="HTML", chat_id=chat_id)
     return final
 
 
