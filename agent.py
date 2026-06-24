@@ -13,8 +13,9 @@ TIMEOUT = 90
 
 SYSTEM = (
     "你是 RSS 资讯流水线的助手，通过 Telegram 和用户中文对话。"
-    "你只能通过提供的工具操作（查库、搜索、统计、触发采集、深入了解）。"
-    "回答简洁中文。需要数据时务必调用工具，不要编造。"
+    "你有一组工具用于操作流水线（查库、搜索、统计、触发采集、深入了解）。"
+    "判断原则：涉及本地条目/库数据/采集操作时调用工具，不要编造库里的数据；"
+    "若是通用知识或闲聊问题（与本地库无关），直接用简洁中文回答，无需调用任何工具。"
 )
 
 # --- 白名单工具实现 ---
@@ -89,10 +90,13 @@ TOOLS_SCHEMA = [
 
 
 def _deepseek(messages, tools):
+    body = {"model": config.DEEPSEEK_MODEL, "messages": messages, "temperature": 0.2}
+    if tools:  # 不传或传 None 时省略，强制模型直接出文字
+        body["tools"] = tools
     r = requests.post(
         f"{config.DEEPSEEK_BASE}/chat/completions",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
-        json={"model": config.DEEPSEEK_MODEL, "messages": messages, "tools": tools, "temperature": 0.2},
+        json=body,
         timeout=TIMEOUT,
     )
     r.raise_for_status()
@@ -123,4 +127,9 @@ def handle(user_text, max_steps=4):
             except Exception as e:
                 result = f"工具 {name} 执行出错: {e}"
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
-    return "处理步骤过多，已中止。请把指令说得更具体些。"
+    # 步数用尽：不带工具再问一次，强制基于已有上下文给出文字答案
+    try:
+        final = _deepseek(messages, tools=None)
+        return final.get("content") or "（无回复）"
+    except Exception:
+        return "处理步骤过多，已中止。请把指令说得更具体些。"
