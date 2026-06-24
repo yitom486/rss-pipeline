@@ -167,6 +167,9 @@ def stream_to_message(chunks, header="", min_interval=0.4, chat_id=None, rich=No
 
     # 定稿
     final = "".join(buf)
+    if not final.strip():
+        send_message("（无回复）", markdown=False, chat_id=chat_id)
+        return final
     md = header + final
     if rich:  # 尝鲜：优先原生富文本，失败退 HTML
         try:

@@ -124,6 +124,59 @@ def _deepseek(messages, tools):
     return r.json()["choices"][0]["message"]
 
 
+def _deepseek_stream(messages):
+    """不带工具的流式补全：逐段 yield 文本增量。"""
+    with requests.post(
+        f"{config.DEEPSEEK_BASE}/chat/completions",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
+        json={"model": config.DEEPSEEK_MODEL, "messages": messages, "temperature": 0.2, "stream": True},
+        timeout=TIMEOUT, stream=True,
+    ) as r:
+        r.raise_for_status()
+        for line in r.iter_lines(decode_unicode=True):
+            if not line or not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload == "[DONE]":
+                break
+            try:
+                delta = json.loads(payload)["choices"][0]["delta"].get("content")
+            except (json.JSONDecodeError, KeyError, IndexError):
+                continue
+            if delta:
+                yield delta
+
+
+def handle_stream(user_text, max_steps=4):
+    """流式版：先用（非流式）工具循环解析需要的数据，最终回答用流式逐段 yield。"""
+    messages = [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": user_text},
+    ]
+    for _ in range(max_steps):
+        msg = _deepseek(messages, TOOLS_SCHEMA)
+        tool_calls = msg.get("tool_calls")
+        if not tool_calls:
+            # 到达最终回答阶段：用流式（不带工具）重新生成，逐段吐字
+            yield from _deepseek_stream(messages)
+            return
+        messages.append(msg)
+        for tc in tool_calls:
+            name = tc["function"]["name"]
+            try:
+                args = json.loads(tc["function"]["arguments"] or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            fn = TOOLS_IMPL.get(name)
+            try:
+                result = fn(**args) if fn else f"未知工具 {name}"
+            except Exception as e:
+                result = f"工具 {name} 执行出错: {e}"
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
+    # 步数用尽兜底：不带工具流式作答
+    yield from _deepseek_stream(messages)
+
+
 def handle(user_text, max_steps=4):
     """处理一条自然语言指令，返回要发回用户的文本。"""
     messages = [

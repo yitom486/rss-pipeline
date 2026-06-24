@@ -110,12 +110,11 @@ def main():
                             # 输出可能很长，截断到 Telegram 单条上限内
                             telegram.send_message(out[:3800], markdown=False)
                     else:
-                        # 自然语言指令交给 agent（只读+取材白名单工具）
+                        # 自然语言指令交给 agent（只读+取材白名单工具），流式作答
                         try:
-                            reply = agent.handle(t)
+                            telegram.stream_to_message(agent.handle_stream(t))
                         except Exception as e:
-                            reply = f"处理出错：{e}"
-                        telegram.send_html(reply)
+                            telegram.send_html(f"处理出错：{e}")
             except Exception:
                 traceback.print_exc()
 
