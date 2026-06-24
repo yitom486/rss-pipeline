@@ -129,16 +129,20 @@ def send_rich_message(markdown, chat_id=None):
     )
 
 
-def stream_to_message(chunks, header="", min_interval=0.4, chat_id=None):
-    """原生富文本流式：sendRichMessageDraft 高频推草稿（无闪烁、原生渲染、容忍半截 markdown），
-    结束后 sendRichMessage 定稿落地。富文本不可用时逐级降级到纯文本草稿 / HTML。
-    chunks 产出增量 Markdown，返回完整文本。"""
+def stream_to_message(chunks, header="", min_interval=0.4, chat_id=None, rich=None):
+    """流式打字机草稿 + 定稿落地。chunks 产出增量 Markdown，返回完整文本。
+    rich=None 时读 config.RICH_STREAMING：
+      False(默认/成熟): 纯文本草稿(9.5)流式 + HTML 定稿，全端含手机兼容；
+      True(尝鲜):       原生富文本草稿(10.1)流式 + rich 定稿，需新版客户端。
+    富文本路径若被拒会逐级降级到纯文本草稿 / HTML。"""
     import time, random
+    if rich is None:
+        rich = config.RICH_STREAMING
     chat_id = chat_id or config.TELEGRAM_CHAT_ID
     draft_id = random.getrandbits(31) or 1  # 非零唯一 ID
     buf = []
     last_push = 0.0
-    mode = "rich"  # rich -> plain（草稿降级）
+    mode = "rich" if rich else "plain"
 
     def _push():
         nonlocal last_push, mode
@@ -161,12 +165,15 @@ def stream_to_message(chunks, header="", min_interval=0.4, chat_id=None):
         if time.time() - last_push >= min_interval:
             _push()
 
-    # 定稿：优先原生富文本，失败再退 HTML
+    # 定稿
     final = "".join(buf)
     md = header + final
-    try:
-        send_rich_message(md, chat_id=chat_id)
-    except RuntimeError:
+    if rich:  # 尝鲜：优先原生富文本，失败退 HTML
+        try:
+            send_rich_message(md, chat_id=chat_id)
+        except RuntimeError:
+            send_message(md_to_tg_html(md), parse_mode="HTML", chat_id=chat_id)
+    else:     # 成熟：HTML 定稿，全端兼容
         send_message(md_to_tg_html(md), parse_mode="HTML", chat_id=chat_id)
     return final
 
