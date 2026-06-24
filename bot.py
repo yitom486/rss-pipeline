@@ -86,17 +86,22 @@ def main():
                 if "callback_query" in u:
                     handle_callback(u["callback_query"])
                 elif "message" in u:
+                    chat_id = u["message"].get("chat", {}).get("id")
                     t = (u["message"].get("text") or "").strip()
                     if not t:
                         continue
                     if t == "/start":
                         telegram.send_message(
                             "👋 审核机器人在线。\n"
-                            "· 直接发文字 = 流水线查询（DeepSeek，便宜）\n"
+                            "· 直接发文字 = 流水线查询（DeepSeek，便宜，带最近10轮上下文）\n"
                             "  例：现在抓一遍最新热点 / 还有哪些没审核的 / 深入了解 #5\n"
+                            "· /reset = 清空对话上下文，开新话题\n"
                             "· /cc <任务> = 让 Claude Code 干活（通用能力，A档限工具+限目录）\n"
                             "  例：/cc 把 agent-workspace 里的 notes.md 整理成提纲"
                         )
+                    elif t == "/reset":
+                        agent.reset_history(chat_id)
+                        telegram.send_message("🧹 已清空对话上下文，可以开新话题了。", markdown=False)
                     elif t.startswith("/cc"):
                         task = t[3:].strip()
                         if not task:
@@ -112,7 +117,7 @@ def main():
                     else:
                         # 自然语言指令交给 agent（只读+取材白名单工具），流式作答
                         try:
-                            telegram.stream_to_message(agent.handle_stream(t))
+                            telegram.stream_to_message(agent.handle_stream(t, chat_id=chat_id))
                         except Exception as e:
                             telegram.send_html(f"处理出错：{e}")
             except Exception:

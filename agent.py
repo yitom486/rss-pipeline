@@ -124,6 +124,25 @@ def _deepseek(messages, tools):
     return r.json()["choices"][0]["message"]
 
 
+# --- 跨消息上下文（内存态，按 chat_id；保留最近 N 轮 user+assistant）---
+MAX_TURNS = 10
+_HISTORY = {}
+
+
+def _remember(chat_id, user_text, assistant_text):
+    if not chat_id or not assistant_text.strip():
+        return
+    h = _HISTORY.setdefault(chat_id, [])
+    h.append({"role": "user", "content": user_text})
+    h.append({"role": "assistant", "content": assistant_text})
+    del h[: -2 * MAX_TURNS]  # 仅保留最近 MAX_TURNS 轮
+
+
+def reset_history(chat_id):
+    """清空某会话的上下文。"""
+    _HISTORY.pop(chat_id, None)
+
+
 def _deepseek_stream(messages):
     """不带工具的流式补全：逐段 yield 文本增量。"""
     with requests.post(
@@ -147,19 +166,19 @@ def _deepseek_stream(messages):
                 yield delta
 
 
-def handle_stream(user_text, max_steps=4):
-    """流式版：先用（非流式）工具循环解析需要的数据，最终回答用流式逐段 yield。"""
+def handle_stream(user_text, chat_id=None, max_steps=4):
+    """流式版：带最近若干轮上下文，先用（非流式）工具循环解析数据，最终回答流式 yield。"""
+    history = _HISTORY.get(chat_id, []) if chat_id else []
     messages = [
         {"role": "system", "content": SYSTEM},
+        *history,
         {"role": "user", "content": user_text},
     ]
     for _ in range(max_steps):
         msg = _deepseek(messages, TOOLS_SCHEMA)
         tool_calls = msg.get("tool_calls")
         if not tool_calls:
-            # 到达最终回答阶段：用流式（不带工具）重新生成，逐段吐字
-            yield from _deepseek_stream(messages)
-            return
+            break  # 到达最终回答阶段
         messages.append(msg)
         for tc in tool_calls:
             name = tc["function"]["name"]
@@ -173,8 +192,12 @@ def handle_stream(user_text, max_steps=4):
             except Exception as e:
                 result = f"工具 {name} 执行出错: {e}"
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
-    # 步数用尽兜底：不带工具流式作答
-    yield from _deepseek_stream(messages)
+    # 最终回答：流式（不带工具）逐段吐字，并记入上下文（只存 user + 最终文字）
+    collected = []
+    for delta in _deepseek_stream(messages):
+        collected.append(delta)
+        yield delta
+    _remember(chat_id, user_text, "".join(collected))
 
 
 def handle(user_text, max_steps=4):
