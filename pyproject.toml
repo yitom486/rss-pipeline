@@ -1,0 +1,21 @@
+[project]
+name = "rss-pipeline"
+version = "0.1.0"
+description = "RSS 采集 → AI 翻译摘要 → Telegram 审核 → 发布 流水线"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.31",
+]
+
+# 控制台入口：uv sync 后会在 .venv/bin/ 生成可执行脚本，
+# systemd / cron 直接指向它们（既是入口、又锁定 venv 解释器）。
+[project.scripts]
+rss-pipeline = "rss_pipeline.pipeline:main"
+rss-bot = "rss_pipeline.bot:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rss_pipeline"]

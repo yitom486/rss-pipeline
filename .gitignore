@@ -13,3 +13,6 @@
 __pycache__/
 *.pyc
 *.pyo
+
+# uv 虚拟环境（用 `uv sync` 从 uv.lock 重建，不入库）
+.venv/
