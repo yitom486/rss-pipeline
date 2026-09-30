@@ -4,6 +4,7 @@ Reference: https://core.telegram.org/bots/api#sendrichmessagedraft
 Drafts are private-chat previews; only sendRichMessage persists the result.
 """
 import random
+import html
 import threading
 import time
 
@@ -106,7 +107,8 @@ def stream(chunks, *, header='', min_interval=DRAFT_INTERVAL, chat_id=None,
             on_event({'event': kind, 'draft_id': draft_id, **fields})
 
     emit('started')
-    send_draft(draft_id, '<tg-thinking>正在阅读资料并整理回答…</tg-thinking>', **draft_kwargs)
+    status = '正在建立 Codex 会话…'
+    send_draft(draft_id, '<tg-thinking>' + status + '</tg-thinking>', **draft_kwargs)
     emit('thinking')
     last_push = time.monotonic()
     buf = []
@@ -116,16 +118,17 @@ def stream(chunks, *, header='', min_interval=DRAFT_INTERVAL, chat_id=None,
         if stop_event is not None and stop_event.is_set():
             stopped = True
             break
+        if isinstance(chunk, dict) and chunk.get('kind') == 'activity':
+            status = chunk['message']
+            emit('activity', activity=chunk)
+            chunk = ''
         if not isinstance(chunk, str):
             raise TypeError('stream chunks must be strings')
         if chunk:
             buf.append(chunk)
-        if not buf and time.monotonic() - last_push >= 8:
-            send_draft(draft_id, '<tg-thinking>正在阅读资料并整理回答…</tg-thinking>', **draft_kwargs)
-            last_push = time.monotonic()
-        if buf and time.monotonic() - last_push >= interval:
-            body = header + ''.join(buf)
-            if body != last_body and body.strip():
+        if time.monotonic() - last_push >= interval:
+            body = header + ''.join(buf) + '\n\n<tg-thinking>' + html.escape(status) + '</tg-thinking>'
+            if body != last_body or time.monotonic() - last_push >= 8:
                 send_draft(draft_id, body, **draft_kwargs)
                 emit('draft', characters=len(body))
                 last_body = body

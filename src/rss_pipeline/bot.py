@@ -19,6 +19,7 @@ class Job:
     chat_id: str
     stop: threading.Event = field(default_factory=threading.Event)
     draft_id: int | None = None
+    task_id: int | None = None
 
 
 def busy(chat_id):
@@ -28,6 +29,8 @@ def busy(chat_id):
 
 def _run(job, factory, markup):
     output = queue.Queue(maxsize=32)
+    job.task_id = db.start_task(job.chat_id, '资讯对话')
+    outcome, message_id = 'failed', None
 
     def put(value):
         while not job.stop.is_set():
@@ -67,15 +70,23 @@ def _run(job, factory, markup):
         yield ''
 
     def event(data):
+        nonlocal message_id
         if data['event'] == 'started':
             job.draft_id = data['draft_id']
+        elif data['event'] == 'activity':
+            if data['activity']['event'] != 'commentary_live':
+                db.task_event(job.task_id, data['activity'])
+        elif data['event'] == 'final':
+            message_id = data['message_id']
 
     threading.Thread(target=produce, daemon=True).start()
     try:
         native_rich.stream(chunks(), chat_id=job.chat_id, stop_event=job.stop,
                            reply_markup=markup, on_event=event)
+        outcome = 'interrupted' if job.stop.is_set() else 'completed'
     except Exception as exc:
         safe = str(exc) if isinstance(exc, (codex_agent.CodexError, native_rich.NativeRichError)) else '这次解读未完成，请稍后重试。'
+        db.task_event(job.task_id, {'event': 'error', 'message': safe, 'status': 'failed'})
         try:
             telegram.send_message(safe, chat_id=job.chat_id, markdown=False)
         except Exception:
@@ -86,6 +97,7 @@ def _run(job, factory, markup):
         if not producer_done.wait(timeout=35):
             print('Codex 尚未确认停止，保留忙碌状态防止会话交叉', file=sys.stderr, flush=True)
             producer_done.wait()
+        db.finish_task(job.task_id, outcome, message_id)
         with _lock:
             if _jobs.get(job.chat_id) is job:
                 _jobs.pop(job.chat_id)
@@ -116,7 +128,7 @@ def _start_reply(chat_id, text, markup=None):
     def controls():
         item = db.current(chat_id)
         return telegram.review_buttons(item['id'], item['url']) if item else markup
-    return start_job(chat_id, lambda stop: codex_agent.reply(text, chat_id, cancel_event=stop, session=session), controls)
+    return start_job(chat_id, lambda stop: codex_agent.reply(text, chat_id, cancel_event=stop, session=session, emit_activity=True), controls)
 
 
 def _switch(chat_id, session_id):
@@ -212,6 +224,10 @@ def _report_page(chat_id, report_id, page=0):
 def handle_message(msg):
     chat_id = msg['chat']['id']
     text = (msg.get('text') or '').strip()
+    if any(key in msg for key in ('photo', 'document', 'voice', 'audio', 'video')):
+        telegram.send_message('目前还没有接入图片、音视频或 PDF 文件的内容识别。请发送文字或公开来源链接；已保存的报告可以用 /export 编号 下载 Markdown 文件。',
+                              chat_id=chat_id, markdown=False)
+        return
     if not text:
         return
     command, _, argument = text.partition(' ')
@@ -260,6 +276,7 @@ def handle_message(msg):
                               '\n\n`/new 名称` 新会话 · `/sessions` 切换会话 · `/models` 选择模型'
                               '\n\n`/preferences` 偏好 · `/saved` 收藏 · `/latest` 最近资讯'
                               '\n\n`/reports` 报告 · `/delivery` 推送状态 · `/stop` 停止生成'
+                              '\n\n`/status` 执行状态 · `/trace 编号` 执行记录 · `/export 编号` 下载报告'
                               '\n\n也可以直接问：你有哪些功能？帮我把这篇生成一份详细报告。', chat_id=chat_id)
     elif command in ('/saved', '/latest'):
         if command == '/saved':
@@ -277,10 +294,25 @@ def handle_message(msg):
         rows = db.list_reports(chat_id)
         telegram.send_message('\n'.join(f"#{r['id']} {r['title']} · /report {r['id']}" for r in rows)
                               or '暂无报告。可以直接请求：帮我生成并保存详细报告。', chat_id=chat_id, markdown=False)
+    elif command == '/export':
+        if not argument.isdigit():
+            raise ValueError('用法：/export 报告编号')
+        telegram.export_report(chat_id, int(argument))
     elif command == '/report':
         if not argument.isdigit():
             raise ValueError('用法：/report 报告编号')
         _report_page(chat_id, int(argument))
+    elif command == '/status':
+        labels = {'running': '运行中', 'completed': '已完成', 'failed': '未完成', 'interrupted': '已停止', 'unknown': '进程中断，待确认'}
+        rows = db.tasks(chat_id)
+        body = '\n\n'.join(f"任务 #{r['id']} · {r['kind']} · {labels.get(r['status'], r['status'])} · /trace {r['id']}\n{r['latest_event'] or '等待执行事件'}" for r in rows)
+        telegram.send_message(body or '暂无任务。', chat_id=chat_id, markdown=False)
+    elif command == '/trace':
+        if not argument.isdigit():
+            raise ValueError('用法：/trace 任务编号')
+        rows = db.trace(chat_id, int(argument))
+        body = '\n'.join(r['message'] for r in rows[-30:])
+        telegram.send_message(body or '该任务尚无执行事件。', chat_id=chat_id, markdown=False)
     elif command == '/delivery':
         with db.conn() as c:
             rows = c.execute('SELECT delivery_status,COUNT(*) AS count FROM items GROUP BY delivery_status').fetchall()
@@ -319,6 +351,7 @@ def authorized(update):
 
 def main():
     db.init()
+    db.recover_tasks('资讯对话')
     print('原生富文本 Codex 资讯助手启动', flush=True)
     offset = None
     while True:

@@ -8,13 +8,14 @@ Python + uv + HTTPX + SQLite + Codex App Server，Telegram 只使用原生富文
 
 ```mermaid
 flowchart TD
-    Cron[cron：每小时第 5 分钟] --> Pipeline[采集进程 rss-pipeline]
+    Cron[cron：每小时第 5 分钟] --> Pipeline[调度器：锁与投递重试]
+    Pipeline --> Editor[Codex 编辑任务：选择与逐篇分析]
     Sources[GitHub Trending / Hacker News] --> RSSHub[本机 RSSHub]
     RSSHub --> Fetch[HTTPX：读取 RSS 与原文 / README]
-    Pipeline --> Fetch
-    Fetch --> Summary[Codex：结构化中文摘要]
-    Summary --> Queue[(SQLite：资讯与投递状态)]
-    Queue --> Delivery[原生富文本正式推送]
+    Editor <--> Fetch
+    Editor --> Submit[news_queue_digest：提交一篇解读]
+    Submit --> Queue[(SQLite：资讯与投递状态)]
+    Queue --> Delivery[每篇立即独立推送与阅读按钮]
     Delivery --> Telegram[Telegram 用户]
 
     Telegram --> Poll[持续 getUpdates 轮询]
@@ -22,13 +23,19 @@ flowchart TD
     Bot --> State[(SQLite：会话 / 模型 / 偏好 / 报告)]
     Bot --> Agent[Codex App Server：持久 thread 与工具]
     Agent <--> State
-    Agent --> Stream[原生流式草稿 → 正式消息]
+    Agent --> Events[工具与模型进度事件]
+    Events --> Trace[(SQLite：任务与执行记录)]
+    Editor --> Trace
+    Events --> Stream[原生草稿：正文与实际状态]
+    Agent --> Stream
     Stream --> Telegram
+    Agent --> Export[报告 Markdown 文件]
+    Export --> Telegram
     Bot --> Interrupt[停止生成：turn/interrupt]
     Interrupt --> Agent
 ```
 
-采集摘要使用独立临时 Codex thread；用户追问、报告与分析使用当前会话的持久 thread。会话编号、偏好和报告保存在 SQLite，Codex 管理模型上下文。两类模型任务都使用本机 Codex 登录状态。
+采集使用独立临时 Codex thread，由 agent 调用取源、读原文、读取偏好与提交解读工具，默认每次最多六篇，不强求凑数。每提交一篇立即尝试发送，失败通过投递状态重试，不等到所有文章完成再发。用户追问、报告与分析使用当前会话的持久 thread。两类任务都使用本机 Codex 登录状态。
 
 原生 Telegram 流式样例已由用户验收，真实 Codex 摘要、工具与重启恢复已验证。部署时使用正式目录、实际用户会话与项目 skill，已生成并发送原生流式使用说明；服务已开始轮询。用户从 Telegram 实际发起的连续对话与各按钮仍需客户端验收。GitHub Trending 的 RSSHub 503 尚未修复。
 
@@ -66,6 +73,8 @@ uv run rss-pipeline
 | `/prefer 名称=内容` | 保存偏好；空内容删除 |
 | `/saved`、`/latest` | 收藏与最近资讯 |
 | `/reports`、`/report 编号` | 持久报告与分页阅读 |
+| `/export 编号` | 下载 Markdown 报告文件 |
+| `/status`、`/trace 编号` | 查看实际任务状态与执行记录 |
 | `/delivery` | 推送状态与异常状态计数 |
 | `/stop` | 中断 Codex 生成 |
 | `/reset` | 新建会话，不删除旧会话 |
@@ -82,6 +91,10 @@ uv run rss-pipeline
 
 原生草稿通过同一个 draft_id 更新，结束后发送原生正式消息。没有普通消息、普通草稿或旧 HTML 转换回退。限流按 Telegram retry_after 处理；最终发送超时标为 unknown，不盲目重发。明确拒绝的发送标为 failed，下次采集重试。
 
+聊天任务的 App Server 事件经过 producer queue 实时更新草稿中的 `<tg-thinking>` 状态：实际工具开始、来源获取结果、原文读取、工具失败、模型的公开进度说明及正文生成。临时状态不写进最终正文；不展示原始 reasoning 或工具参数。`/status`、`/trace` 用数据库中的真实执行记录，按用户隔离。定时采集记录后台事件，并在每篇消息附取材记录入口；它不自动抢占用户正在阅读的对话草稿。
+
+输出与媒体支持见 [OUTPUT_FORMATS.md](OUTPUT_FORMATS.md)。新建会话获得最新工具目录；旧会话继续原 thread，新增导出工具未进入旧目录时可直接用 `/export`，不为了升级工具偷偷重建会话。
+
 首次迁移不会自动补发旧版本未确认的历史条目，避免突然收到大量旧新闻。取材、模型生成和消息消费分开运行，停止按钮连接 Codex turn/interrupt。切换会话/模型前必须等待当前任务停止。
 
 ## 指令与 skill
@@ -94,8 +107,8 @@ uv run rss-pipeline
 
 ## 当前范围
 
-- 收藏与兴趣反馈已持久保存，兴趣反馈作为后续分析的参考；自动个性化排序和订阅时间设置属于后续版本。
-- 报告可保存、读取和继续修订；当前按原生消息分页查看，尚无 PDF 导出。
+- 收藏与兴趣反馈已持久保存，兴趣反馈作为后续分析的参考；定时 agent 根据显式偏好选择文章，尚无可配置的自动排序规则或订阅时间设置。
+- 报告可保存、读取、继续修订和下载 Markdown；尚无 PDF/Word 导出。
 - 报告内容页以原生 HTML 转义文本呈现，确保分页不截断结构导致内容丢失。
 - 原生消息发送成功不等于所有 Telegram 客户端显示无问题；客户端验收要单独记录。
 - `/cc` 旧命令未迁入此版，资讯对话统一交给 Codex；不是把任意服务器执行权限开放给 Telegram。

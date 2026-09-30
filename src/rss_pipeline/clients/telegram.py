@@ -1,7 +1,25 @@
 """Telegram controls and native rich presentation; no ordinary message fallback."""
 import html
-from .. import config
-from . import native_rich
+from .. import config, db
+from . import native_rich, http
+import httpx
+
+
+def export_report(chat_id, report_id):
+    report = db.report(chat_id, report_id)
+    if report is None:
+        raise ValueError('报告不存在')
+    content = ('# ' + report['title'] + '\n\n' + report['content'] + '\n').encode('utf-8')
+    try:
+        response = http.post(f'https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendDocument',
+                             data={'chat_id': str(chat_id)},
+                             files={'document': (f'news-report-{report_id}.md', content, 'text/markdown; charset=utf-8')}, timeout=45)
+        data = response.json()
+    except (httpx.HTTPError, ValueError):
+        raise native_rich.NativeRichError('报告文件发送未确认，请检查聊天后再决定是否重试。', unconfirmed=True) from None
+    if not data.get('ok'):
+        raise native_rich.NativeRichError('Telegram 未接受报告文件。')
+    return data['result']
 
 
 def send_message(text, reply_markup=None, chat_id=None, disable_preview=True,

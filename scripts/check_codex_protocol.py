@@ -24,6 +24,7 @@ def main():
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         recorder = Recorder()
         recorder.create_thread(codex_agent.TOOLS)
+        recorder.create_thread(codex_agent.COLLECTOR_TOOLS, ephemeral=True)
         recorder.resume_thread('persisted-thread', model='test-model')
         paths = {'thread/start': 'v2/ThreadStartParams.json', 'thread/resume': 'v2/ThreadResumeParams.json'}
         for method, params in recorder.calls:

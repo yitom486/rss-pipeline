@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 
-from .. import config, prompts
+from .. import config, prompts, activity
 
 
 class CodexError(RuntimeError):
@@ -28,6 +28,7 @@ class AppServer:
         self._pending = {}
         self._events = {}
         self._tool_workers = ThreadPoolExecutor(max_workers=4)
+        self._tool_context = threading.local()
         self._closed = False
         # Disable inherited connector/shell capabilities: app tools are explicit.
         command = [config.CODEX_BIN, 'app-server', '--listen', 'stdio://',
@@ -113,13 +114,22 @@ class AppServer:
     def _server_request(self, request):
         method, params = request['method'], request.get('params', {})
         if method == 'item/tool/call':
+            self._tool_context.thread_id = params['threadId']
+            self._tool_context.turn_id = params.get('turnId')
+            self.publish_activity(params['threadId'], activity.tool_event(params['tool'], True), params.get('turnId'))
             try:
                 if self.tool_handler is None:
                     raise ValueError('Tool handler unavailable')
                 result = self.tool_handler(params['threadId'], params['tool'], params['arguments'])
                 reply = {'success': True, 'contentItems': [{'type': 'inputText', 'text': json.dumps(result, ensure_ascii=False)}]}
+                completed = activity.tool_event(params['tool'], False, not (isinstance(result, dict) and result.get('error')))
+                detail = activity.summarize_result(result)
+                if detail:
+                    completed['message'] += ' · ' + detail
             except Exception:
                 reply = {'success': False, 'contentItems': [{'type': 'inputText', 'text': '工具执行失败，请检查参数或稍后重试。'}]}
+                completed = activity.tool_event(params['tool'], False, False)
+            self.publish_activity(params['threadId'], completed, params.get('turnId'))
             self._write({'id': request['id'], 'result': reply})
         elif method in ('item/commandExecution/requestApproval', 'item/fileChange/requestApproval'):
             self._write({'id': request['id'], 'result': {'decision': 'decline'}})
@@ -144,7 +154,15 @@ class AppServer:
                             'sandbox': 'read-only', 'approvalPolicy': 'never',
                             'developerInstructions': prompts.ASSISTANT, **({'model': model} if model else {})})
 
-    def turn(self, thread_id, text, *, cancel_event=None, output_schema=None, use_skill=True, timeout=600):
+    def publish_activity(self, thread_id, value, turn_id=None):
+        if turn_id is None and getattr(self._tool_context, 'thread_id', None) == thread_id:
+            turn_id = self._tool_context.turn_id
+        with self._state_lock:
+            events = self._events.get(thread_id)
+        if events is not None:
+            events.put({'method': 'client/activity', 'params': {'threadId': thread_id, 'turnId': turn_id, 'activity': value}})
+
+    def turn(self, thread_id, text, *, cancel_event=None, output_schema=None, use_skill=True, emit_activity=False, timeout=600):
         events = queue.Queue()
         with self._state_lock:
             if thread_id in self._events:
@@ -163,10 +181,14 @@ class AppServer:
                 params['outputSchema'] = output_schema
             started = self.request('turn/start', params)
             turn_id = started['turn']['id']
+            if emit_activity:
+                yield activity.event('turn_started', 'Codex 已开始处理当前任务', status='running')
             deadline = time.monotonic() + timeout
             authoritative = []
             streamed = False
             message_phases = {}
+            commentary = {}
+            writing = False
             while time.monotonic() < deadline:
                 if cancel_event is not None and cancel_event.is_set() and interrupted_at is None:
                     self.request('turn/interrupt', {'threadId': thread_id, 'turnId': turn_id})
@@ -183,16 +205,36 @@ class AppServer:
                     continue
                 if method == 'client/disconnected':
                     raise CodexError('Codex 连接中断；原会话 ID 已保留，重连后可继续')
-                if method == 'item/started' and data.get('item', {}).get('type') == 'agentMessage':
+                if method == 'client/activity':
+                    if emit_activity:
+                        yield data['activity']
+                elif method == 'turn/plan/updated' and emit_activity:
+                    steps = data.get('plan', [])
+                    text = '；'.join(str(s.get('step', '')) for s in steps if s.get('status') == 'inProgress')
+                    if text:
+                        yield activity.event('plan', text)
+                elif method == 'item/started' and data.get('item', {}).get('type') == 'contextCompaction':
+                    if emit_activity:
+                        yield activity.event('compaction', 'Codex 正在压缩会话上下文')
+                elif method == 'item/started' and data.get('item', {}).get('type') == 'agentMessage':
                     item = data['item']
                     message_phases[item['id']] = item.get('phase')
                 elif method == 'item/agentMessage/delta':
                     if interrupted_at is None and message_phases.get(data.get('itemId')) != 'commentary':
+                        if emit_activity and not writing:
+                            yield activity.event('writing', '正在生成正文')
+                            writing = True
                         streamed = True
                         yield data.get('delta', '')
+                    elif emit_activity and interrupted_at is None:
+                        item_id = data.get('itemId')
+                        commentary[item_id] = commentary.get(item_id, '') + data.get('delta', '')
+                        yield activity.event('commentary_live', commentary[item_id])
                 elif method == 'item/completed' and data.get('item', {}).get('type') == 'agentMessage':
                     if data['item'].get('phase') != 'commentary':
                         authoritative.append(data['item'].get('text', ''))
+                    elif emit_activity:
+                        yield activity.event('commentary', data['item'].get('text', ''))
                 elif method == 'turn/completed':
                     if data['turn']['id'] != turn_id:
                         continue

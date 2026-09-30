@@ -44,6 +44,7 @@ def init():
             'delivery_status': "TEXT NOT NULL DEFAULT 'queued'",
             'delivery_error': "TEXT NOT NULL DEFAULT ''",
             'delivery_attempts': 'INTEGER NOT NULL DEFAULT 0',
+            'collection_task_id': 'INTEGER',
         }
         for name, declaration in additions.items():
             if name not in columns:
@@ -144,7 +145,66 @@ CREATE TABLE IF NOT EXISTS interest_feedback (
     preference TEXT NOT NULL, updated_at INTEGER NOT NULL,
     PRIMARY KEY(chat_id,item_id)
 );
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id TEXT NOT NULL,
+    kind TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running',
+    message_id INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS task_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL,
+    event TEXT NOT NULL, message TEXT NOT NULL, tool TEXT, status TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_owner ON tasks(chat_id,id);
+CREATE INDEX IF NOT EXISTS idx_task_events ON task_events(task_id,id);
 """
+
+
+def start_task(chat_id, kind):
+    now = int(time.time())
+    with conn() as c:
+        return c.execute('INSERT INTO tasks(chat_id,kind,created_at,updated_at) VALUES (?,?,?,?)',
+                         (str(chat_id), kind, now, now)).lastrowid
+
+
+def task_event(task_id, value):
+    from .activity import public_text
+    with conn() as c:
+        c.execute('INSERT INTO task_events(task_id,event,message,tool,status,created_at) VALUES (?,?,?,?,?,?)',
+                  (task_id, value['event'], public_text(value['message']), value.get('tool'),
+                   value.get('status'), int(time.time())))
+        c.execute('DELETE FROM task_events WHERE task_id=? AND id NOT IN '
+                  '(SELECT id FROM task_events WHERE task_id=? ORDER BY id DESC LIMIT 500)', (task_id, task_id))
+        c.execute('UPDATE tasks SET updated_at=? WHERE id=?', (int(time.time()), task_id))
+
+
+def finish_task(task_id, status, message_id=None):
+    with conn() as c:
+        c.execute('UPDATE tasks SET status=?,message_id=?,updated_at=? WHERE id=?',
+                  (status, message_id, int(time.time()), task_id))
+
+
+def recover_tasks(kind):
+    with conn() as c:
+        rows = c.execute("SELECT id FROM tasks WHERE kind=? AND status='running'", (kind,)).fetchall()
+        for row in rows:
+            c.execute("UPDATE tasks SET status='unknown',updated_at=? WHERE id=?", (int(time.time()), row['id']))
+            c.execute('INSERT INTO task_events(task_id,event,message,status,created_at) VALUES (?,?,?,?,?)',
+                      (row['id'], 'process_interrupted', '上次任务进程已中断，执行结果待确认', 'unknown', int(time.time())))
+
+
+def tasks(chat_id, limit=5):
+    with conn() as c:
+        return [dict(r) for r in c.execute('SELECT t.*, (SELECT message FROM task_events e WHERE e.task_id=t.id ORDER BY e.id DESC LIMIT 1) AS latest_event '
+                                           'FROM tasks t WHERE chat_id=? ORDER BY t.id DESC LIMIT ?',
+                                           (str(chat_id), limit))]
+
+
+def trace(chat_id, task_id):
+    with conn() as c:
+        if not c.execute('SELECT 1 FROM tasks WHERE id=? AND chat_id=?', (task_id, str(chat_id))).fetchone():
+            raise ValueError('任务不存在')
+        return [dict(r) for r in c.execute('SELECT * FROM task_events WHERE task_id=? ORDER BY id', (task_id,))]
 
 
 def save_material(c, item_id, text):
