@@ -26,7 +26,8 @@ def main():
         emit(event='models', count=len(models), default=next((r['model'] for r in models if r.get('isDefault')), None))
         started = api.create_thread(codex_agent.TOOLS, ephemeral=True)
         sources = started.get('instructionSources', [])
-        emit(event='instructions', paths=sources, project_agents_loaded=any(str(p).endswith('/rss-native-preview/AGENTS.md') for p in sources))
+        expected_agents = Path(config.CODEX_CWD) / 'AGENTS.md'
+        emit(event='instructions', paths=sources, project_agents_loaded=any(Path(str(p)).resolve() == expected_agents.resolve() for p in sources))
         if args.summary:
             from rss_pipeline import prompts
             title, summary = codex_agent.structured_summary(

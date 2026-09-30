@@ -1,6 +1,16 @@
 # 开发与验证记录
 
-日期：2026-09-30 UTC。开发工作树 `/root/rss-native-preview`，分支 `feature/news-assistant-v1`。
+日期：2026-09-30 UTC。开发工作树 `/root/rss-native-preview`，分支 `feature/news-assistant-v1`。正式部署目录 `/root/rss-pipeline`。
+
+## 正式部署
+
+- 备份目录 `/root/rss-deploy-backups/20260930T193219Z`：SQLite backup API 备份数据库，保存旧 Git 版本、systemd 配置与完整 crontab。
+- 正式目录快进至已验证新版提交，`uv sync --frozen` 完成，正式目录 30 项离线测试通过。
+- 停止旧轮询服务，安装 uv systemd 入口并重载启动；`ActiveState=active`、`SubState=running`，启动日志确认新版原生富文本 Codex 助手。
+- 采集 cron 已改为 uv，每小时第 5 分钟执行；保留原有证书维护任务。
+- 正式目录 account/read 确认 chatgpt 登录；实际用户会话生成包含项目 skill 的使用说明，并完成原生草稿与正式消息发送。
+- 发送函数验证了 rich_message 响应并正常返回正文。验收脚本发送后误把正文作为响应对象读取，导致元数据打印失败；未记录该消息编号，未重复发送。
+- 服务启动后初步检查无 Telegram 更新获取错误；用户实际从 Telegram 发起的连续对话与按钮操作尚待客户端验收。
 
 ## 已通过
 
@@ -29,9 +39,9 @@
 
 ## 范围与尚未验证的事项
 
-- 当前为可运行开发版本，未替换线上 `/root/rss-pipeline` 的代码、cron 或 systemd 服务。
-- 最新完整 bot 尚未与线上 bot 同时轮询，也没有额外向用户发送测试消息。
-- 原生传输样例和 Codex 真实验证分别通过；完整线上 Telegram → Codex → Telegram 的连续对话需在部署后验收。
+- 正式目录代码、cron 与 systemd 已切换新版；旧 bot 已停止，避免两套消费者争抢更新。
+- 部署阶段已向用户发送一条 Codex 生成的原生流式使用说明；未自动补发历史新闻。
+- 模型到 Telegram 的正式发送已通过；完整用户输入 → 线上 bot → Codex → Telegram 连续对话仍需用户实际交互验收。
 - 用户此前报告点击详情退出 Telegram；具体操作、客户端及版本未确认，不能声称已经确定或修复客户端崩溃。新版默认正文不嵌入折叠详情，阅读按钮发送独立原生回复。
 - GitHub Trending 的 RSSHub 路由此前报 503，用户说明 Token 已过期；未修改 RSSHub Token，本次不将该数据源故障算作已修复。
 - 自动个性化排序、订阅时间设置及 PDF 导出尚未实现；现有偏好和兴趣反馈用于会话分析，报告提供持久存储与原生分页阅读。
