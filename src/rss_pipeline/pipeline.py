@@ -3,8 +3,11 @@ import fcntl
 import json
 from pathlib import Path
 import sys
+import threading
 from . import config, db, codex_agent
 from .clients import telegram, native_rich
+
+_delivery_lock = threading.Lock()
 
 
 def format_card(source, zh_title, zh_summary, url, task_id=None):
@@ -15,6 +18,12 @@ def format_card(source, zh_title, zh_summary, url, task_id=None):
 
 
 def _deliver():
+    # Codex can invoke several queue tools concurrently; sending stays serial.
+    with _delivery_lock:
+        return _deliver_serial()
+
+
+def _deliver_serial():
     with db.conn() as c:
         # A previous process crash after send cannot safely be retried blindly.
         c.execute("UPDATE items SET delivery_status='unknown',delivery_error='进程中断，需确认是否已送达' WHERE delivery_status='sending'")

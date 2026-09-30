@@ -163,3 +163,24 @@ def test_media_input_is_not_silently_treated_as_a_text_question(database, monkey
     bot.handle_message({'chat': {'id': 123}, 'photo': [{'file_id': 'fixture'}], 'caption': '看一下截图'})
     assert '还没有接入' in send.call_args.args[0]
     assert not reply.called
+
+
+def test_parallel_deliveries_do_not_send_one_article_twice(database, article, monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+    def send(*args, **kwargs):
+        calls.append(True)
+        entered.set()
+        assert release.wait(3)
+        return {'message_id': 11}
+    monkeypatch.setattr(pipeline.telegram, 'send_rich_message', send)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(pipeline._deliver)
+        assert entered.wait(3)
+        second = pool.submit(pipeline._deliver)
+        release.set()
+        first.result()
+        second.result()
+    assert len(calls) == 1

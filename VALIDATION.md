@@ -16,7 +16,7 @@
 
 - 用户已确认原生富文本流式样例的阅读体验；对应真实 Telegram 消息 ID 1446，见 `NATIVE_RICH_PREVIEW.md`。
 - `uv sync`：锁定依赖；生产网络依赖为 HTTPX，已移除 requests。
-- `uv run pytest`：41 项离线行为测试；使用临时数据库与模拟网络，不发送消息。
+- `uv run pytest`：42 项离线行为测试；使用临时数据库与模拟网络，不发送消息。
 - 测试覆盖：原生消息不回退、429 重试、发送超时不盲目重发、跨用户会话/报告隔离、偏好持久化、切换模型保留 thread、同一条资讯继续会话、停止事件鉴权、取消调用 turn/interrupt、报告分页不丢字符、来源数据与无效模型输出处理。
 - `uv run python scripts/check_codex_protocol.py`：通过当前 CLI 0.159.2 的 experimental JSON Schema 校验 thread/start、thread/resume、动态工具响应。
 - `uv run python .../skill-creator/scripts/quick_validate.py .agents/skills/news-assistant`：官方 skill 格式校验通过。
@@ -31,6 +31,7 @@
 - `uv run python scripts/collector_probe.py` 使用真实 Codex 和隔离虚构来源/临时数据库，不发送 Telegram 消息。实际调用 news_refresh、news_preferences、news_read_url、news_queue_digest；提交两篇，逐篇投递回调长度为 1、2，GitHub 来源失败仍处理另一来源。
 - 新测试覆盖工具事件路由与参数不泄露、草稿状态更新、最终正文移除状态、trace 用户隔离、队列只接受已取源且已阅读 URL、逐篇投递回调、报告 UTF-8 文件与发送未确认时不重复。
 - 另验证真实 bot 队列保存事件与最终消息编号、进程重启仅恢复对应任务类型、采集连接失败写入执行记录，以及未支持的媒体输入明确提示。
+- agent 并行调用提交工具时，提交和投递保持串行；并发投递测试确认同一条资讯不重复发送。
 - 当前 CLI schema 校验同时覆盖交互工具与定时采集工具目录；项目 skill 校验通过。
 - Markdown 文件导出已通过 HTTPX multipart 与权限测试；本轮没有额外发送报告附件，客户端文件打开验收尚未进行。
 

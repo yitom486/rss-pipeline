@@ -9,6 +9,7 @@ from .clients.codex import AppServer, CodexError
 
 _server = None
 _lock = threading.RLock()
+_queue_lock = threading.RLock()
 _bindings = {}  # thread -> immutable owner/session, never supplied by the model
 
 
@@ -121,28 +122,8 @@ def _tool(thread_id, name, args):
         binding.setdefault('read_urls', {})[args['url']] = text
         return {'source_url': args['url'], 'material': text}
     if name == 'news_queue_digest':
-        candidate = binding.get('candidates', {}).get(args['url'])
-        text = binding.get('read_urls', {}).get(args['url'])
-        if candidate is None or text is None:
-            raise ValueError('Read a real source before queuing')
-        if not args['title'].strip() or not args['summary'].strip():
-            raise ValueError('Empty digest')
-        if len(binding['queued']) >= 6:
-            raise ValueError('Collection budget reached')
-        source, title, desc = candidate
-        with db.conn() as c:
-            if db.url_exists(c, args['url']):
-                return {'already_exists': True}
-            item_id = db.insert_item(c, source, title, args['url'], desc, args['title'], args['summary'])
-            if not text.startswith('（'):
-                db.save_material(c, item_id, text)
-        binding['queued'].append(item_id)
-        with db.conn() as c:
-            c.execute('UPDATE items SET collection_task_id=? WHERE id=?', (binding.get('task_id'), item_id))
-        # Each article is delivered immediately through the durable delivery path.
-        if binding.get('on_queued'):
-            binding['on_queued']()
-        return {'item_id': item_id, 'queued': True}
+        with _queue_lock:
+            return _queue_digest(binding, args)
     if name == 'news_remember_preference':
         db.set_preference(chat_id, args['key'], args['value'])
         return {'saved': True, 'preferences': db.preferences(chat_id)}
@@ -167,6 +148,29 @@ def _tool(thread_id, name, args):
         binding['layout_item_id'] = item['id']
         binding['note'] = args.get('note', '')
         return {'added_reading_controls': True, 'native_rich_only': True}
+
+
+def _queue_digest(binding, args):
+    candidate = binding.get('candidates', {}).get(args['url'])
+    text = binding.get('read_urls', {}).get(args['url'])
+    if candidate is None or text is None:
+        raise ValueError('Read a real source before queuing')
+    if not args['title'].strip() or not args['summary'].strip():
+        raise ValueError('Empty digest')
+    source, title, desc = candidate
+    with db.conn() as c:
+        if db.url_exists(c, args['url']):
+            return {'already_exists': True}
+        if len(binding['queued']) >= 6:
+            raise ValueError('Collection budget reached')
+        item_id = db.insert_item(c, source, title, args['url'], desc, args['title'], args['summary'])
+        if not text.startswith('（'):
+            db.save_material(c, item_id, text)
+        c.execute('UPDATE items SET collection_task_id=? WHERE id=?', (binding.get('task_id'), item_id))
+    binding['queued'].append(item_id)
+    if binding.get('on_queued'):
+        binding['on_queued']()
+    return {'item_id': item_id, 'queued': True}
 
 
 def _progress(thread_id, message, status='running'):
