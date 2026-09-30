@@ -2,6 +2,36 @@
 
 Python + uv + HTTPX + SQLite + Codex App Server，Telegram 只使用原生富文本。
 
+## 架构与运行状态
+
+新版已完成代码接入与分项验证，开发目录为 `/root/rss-native-preview`；尚未替换线上 `/root/rss-pipeline` 的旧服务。线上现有 cron 和新版部署模板均为每小时第 5 分钟采集一次。Telegram 对话由独立 bot 持续轮询，不需要等待下一次定时采集。
+
+```mermaid
+flowchart TD
+    Cron[cron：每小时第 5 分钟] --> Pipeline[采集进程 rss-pipeline]
+    Sources[GitHub Trending / Hacker News] --> RSSHub[本机 RSSHub]
+    RSSHub --> Fetch[HTTPX：读取 RSS 与原文 / README]
+    Pipeline --> Fetch
+    Fetch --> Summary[Codex：结构化中文摘要]
+    Summary --> Queue[(SQLite：资讯与投递状态)]
+    Queue --> Delivery[原生富文本正式推送]
+    Delivery --> Telegram[Telegram 用户]
+
+    Telegram --> Poll[持续 getUpdates 轮询]
+    Poll --> Bot[交互进程 rss-bot]
+    Bot --> State[(SQLite：会话 / 模型 / 偏好 / 报告)]
+    Bot --> Agent[Codex App Server：持久 thread 与工具]
+    Agent <--> State
+    Agent --> Stream[原生流式草稿 → 正式消息]
+    Stream --> Telegram
+    Bot --> Interrupt[停止生成：turn/interrupt]
+    Interrupt --> Agent
+```
+
+采集摘要使用独立临时 Codex thread；用户追问、报告与分析使用当前会话的持久 thread。会话编号、偏好和报告保存在 SQLite，Codex 管理模型上下文。两类模型任务都使用本机 Codex 登录状态。
+
+原生 Telegram 流式样例已由用户验收，真实 Codex 摘要、工具与重启恢复已验证；完整新版 Telegram → Codex → Telegram 连续对话尚待部署后验收。GitHub Trending 的 RSSHub 503 尚未修复。
+
 ## 开发
 
 ```bash
