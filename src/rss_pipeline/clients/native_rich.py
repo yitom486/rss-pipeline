@@ -7,7 +7,7 @@ import random
 import threading
 import time
 
-import requests
+import httpx
 
 from .. import config
 from . import http
@@ -19,6 +19,9 @@ DRAFT_INTERVAL = 1.1  # < 40 requests / 30 seconds per chat, in this process
 
 class NativeRichError(RuntimeError):
     """Safe to display: transport exceptions must never expose the bot URL/token."""
+    def __init__(self, message, *, unconfirmed=False):
+        super().__init__(message)
+        self.unconfirmed = unconfirmed
 
 
 def _pace_draft(chat_id):
@@ -32,20 +35,21 @@ def _pace_draft(chat_id):
 def _call(method, **params):
     if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID and not params.get('chat_id'):
         raise NativeRichError('Telegram bot token or destination is not configured')
+    timeout = params.pop("_timeout", 30)
     api = f'https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}'
     params = {k: v for k, v in params.items() if v is not None}
     for attempt in range(3):
         if method == 'sendRichMessageDraft':
             _pace_draft(params['chat_id'])
         try:
-            response = http.post(f'{api}/{method}', json=params, timeout=30)
-        except requests.RequestException:
+            response = http.post(f'{api}/{method}', json=params, timeout=timeout)
+        except httpx.HTTPError:
             # Final delivery may have succeeded before a timeout: do not duplicate it.
-            raise NativeRichError(f'Telegram {method}: network failure; delivery is unconfirmed') from None
+            raise NativeRichError(f'Telegram {method}: network failure; delivery is unconfirmed', unconfirmed=True) from None
         try:
             data = response.json()
         except ValueError:
-            raise NativeRichError(f'Telegram {method}: non-JSON response ({response.status_code})') from None
+            raise NativeRichError(f'Telegram {method}: non-JSON response ({response.status_code})', unconfirmed=True) from None
         if data.get('ok'):
             return data['result']
         retry_after = data.get('parameters', {}).get('retry_after')
@@ -86,43 +90,59 @@ def send_message(content, *, chat_id=None, format='markdown', message_thread_id=
 
 
 def stream(chunks, *, header='', min_interval=DRAFT_INTERVAL, chat_id=None,
-           message_thread_id=None, on_event=None):
+           message_thread_id=None, on_event=None, stop_event=None, reply_markup=None):
     """Consume model deltas; send accumulated native drafts and one native final.
 
-    Stop UI is intentionally disabled until the bot update loop can cancel the producer.
-    The demo exercises transport with fixture deltas, not model generation.
+    A stop_event enables the stop UI; the bot loop must consume stopped_message_generation.
+    Empty chunks allow the bot producer queue to heartbeat while fetching sources.
     """
     draft_id = random.getrandbits(31) or 1
     interval = max(DRAFT_INTERVAL, min_interval)
     kwargs = {'chat_id': chat_id, 'message_thread_id': message_thread_id}
+    draft_kwargs = {**kwargs, 'can_stop': stop_event is not None, 'keep_on_stop': True}
 
     def emit(kind, **fields):
         if on_event:
             on_event({'event': kind, 'draft_id': draft_id, **fields})
 
-    send_draft(draft_id, '<tg-thinking>正在整理内容…</tg-thinking>', **kwargs)
+    emit('started')
+    send_draft(draft_id, '<tg-thinking>正在阅读资料并整理回答…</tg-thinking>', **draft_kwargs)
     emit('thinking')
     last_push = time.monotonic()
     buf = []
     last_body = None
+    stopped = False
     for chunk in chunks:
+        if stop_event is not None and stop_event.is_set():
+            stopped = True
+            break
         if not isinstance(chunk, str):
             raise TypeError('stream chunks must be strings')
-        buf.append(chunk)
-        if time.monotonic() - last_push >= interval:
+        if chunk:
+            buf.append(chunk)
+        if not buf and time.monotonic() - last_push >= 8:
+            send_draft(draft_id, '<tg-thinking>正在阅读资料并整理回答…</tg-thinking>', **draft_kwargs)
+            last_push = time.monotonic()
+        if buf and time.monotonic() - last_push >= interval:
             body = header + ''.join(buf)
             if body != last_body and body.strip():
-                send_draft(draft_id, body, **kwargs)
+                send_draft(draft_id, body, **draft_kwargs)
                 emit('draft', characters=len(body))
                 last_body = body
                 last_push = time.monotonic()
     final = ''.join(buf)
+    if stop_event is not None and stop_event.is_set():
+        stopped = True
+    if stopped:
+        final += '\n\n*已停止生成。*'
+        emit('stopped')
     if not final.strip():
         raise NativeRichError('Empty generation; no final message was sent')
     body = header + final
     if body != last_body:
-        send_draft(draft_id, body, **kwargs)
+        send_draft(draft_id, body, **draft_kwargs)
         emit('draft', characters=len(body))
-    result = send_message(body, **kwargs)
+    controls = reply_markup() if callable(reply_markup) else reply_markup
+    result = send_message(body, reply_markup=controls, **kwargs)
     emit('final', message_id=result['message_id'], block_types=[b.get('type') for b in result['rich_message']['blocks']])
     return final

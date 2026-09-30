@@ -15,6 +15,7 @@ def _t_run_pipeline():
 
 
 def _t_list_pending(limit=10):
+    limit = max(1, min(int(limit), 30))
     with db.conn() as c:
         rows = db.list_by_status(c, "pending", limit)
     if not rows:
@@ -23,6 +24,7 @@ def _t_list_pending(limit=10):
 
 
 def _t_search(keyword, limit=10):
+    limit = max(1, min(int(limit), 30))
     with db.conn() as c:
         rows = db.search(c, keyword, limit)
     if not rows:
@@ -37,6 +39,7 @@ def _t_stats():
 
 def _t_trending_by_lang(language="", limit=8):
     """实时拉取 GitHub 当日趋势（可按语言筛选），不依赖本地库。"""
+    limit = max(1, min(int(limit), 30))
     lang = (language or "").strip().lower()
     route = f"/github/trending/daily/{lang}" if lang else "/github/trending/daily/any"
     try:
@@ -51,7 +54,7 @@ def _t_trending_by_lang(language="", limit=8):
     )
 
 
-def _t_deep_dive(item_id=None, url=None):
+def _t_deep_dive(item_id=None, url=None, mode="detail"):
     title, link = None, url
     if item_id is not None:
         with db.conn() as c:
@@ -62,7 +65,16 @@ def _t_deep_dive(item_id=None, url=None):
     if not link:
         return "需要提供 item_id 或 url。"
     mat = material.fetch_material(link)
-    return translate.deep_dive(title or link, link, mat)
+    return translate.deep_dive(title or link, link, mat, mode=mode)
+
+
+def _t_get_article(item_id):
+    with db.conn() as c:
+        item = db.get_item(c, int(item_id))
+    if item is None:
+        return '条目不存在'
+    return json.dumps({'item_id': item['id'], 'title': item['title'], 'url': item['url'],
+                       'material': material.for_item(item)}, ensure_ascii=False)
 
 
 TOOLS_IMPL = {
@@ -72,9 +84,13 @@ TOOLS_IMPL = {
     "stats": _t_stats,
     "trending_by_lang": _t_trending_by_lang,
     "deep_dive": _t_deep_dive,
+    "get_article": _t_get_article,
 }
 
 TOOLS_SCHEMA = [
+    {"type": "function", "function": {
+        "name": "get_article", "description": "读取某条资讯的正文/README，返回资料供回答追问，不另行调用总结模型",
+        "parameters": {"type": "object", "properties": {"item_id": {"type": "integer"}}, "required": ["item_id"]}}},
     {"type": "function", "function": {
         "name": "run_pipeline", "description": "立即触发一次采集：拉取RSSHub→翻译摘要→推送待审到Telegram",
         "parameters": {"type": "object", "properties": {}}}},

@@ -16,3 +16,9 @@ __pycache__/
 
 # uv 虚拟环境（用 `uv sync` 从 uv.lock 重建，不入库）
 .venv/
+
+# Runtime collection lock
+*.run.lock
+
+# Generated persistent reports
+reports/

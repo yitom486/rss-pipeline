@@ -7,7 +7,7 @@ import json
 from .. import config
 from . import http
 
-TIMEOUT = 90
+TIMEOUT = (10, 30)
 
 
 def _headers():
@@ -28,10 +28,13 @@ def chat(messages, *, tools=None, max_tokens=None, temperature=0.3, timeout=TIME
     r = http.post(f"{config.DEEPSEEK_BASE}/chat/completions",
                   headers=_headers(), json=body, timeout=timeout)
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]
+    choice = r.json()["choices"][0]
+    if choice.get('finish_reason') == 'length':
+        raise RuntimeError('模型输出达到长度上限，请选择速读或缩小问题范围')
+    return choice['message']
 
 
-def chat_stream(messages, *, max_tokens=None, temperature=0.3, timeout=TIMEOUT):
+def chat_stream(messages, *, max_tokens=None, temperature=0.3, timeout=TIMEOUT, cancel_event=None):
     """流式补全：逐段 yield 文本增量（解析 SSE 的 choices[0].delta.content）。"""
     body = {"model": config.DEEPSEEK_MODEL, "messages": messages,
             "temperature": temperature, "stream": True}
@@ -40,14 +43,24 @@ def chat_stream(messages, *, max_tokens=None, temperature=0.3, timeout=TIMEOUT):
     with http.stream_post(f"{config.DEEPSEEK_BASE}/chat/completions",
                           headers=_headers(), json=body, timeout=timeout) as r:
         r.raise_for_status()
-        for line in r.iter_lines(decode_unicode=True):
+        for line in r.iter_lines():
+            if cancel_event is not None and cancel_event.is_set():
+                return
             if not line or not line.startswith("data:"):
                 continue
             payload = line[5:].strip()
             if payload == "[DONE]":
                 break
             try:
-                delta = json.loads(payload)["choices"][0]["delta"].get("content")
+                event = json.loads(payload)
+                if event.get('error'):
+                    raise RuntimeError('模型流式生成失败')
+                choices = event.get('choices') or []
+                if not choices:
+                    continue
+                if choices[0].get('finish_reason') == 'length':
+                    raise RuntimeError('模型输出达到长度上限，请选择速读或缩小问题范围')
+                delta = choices[0].get('delta', {}).get('content')
             except (json.JSONDecodeError, KeyError, IndexError):
                 continue
             if delta:

@@ -1,68 +1,79 @@
-"""采集流水线（cron 定时跑）：拉源 → 去重 → DeepSeek 翻译摘要 → 存库 → 推 Telegram 待审。
-
-入口：`rss-pipeline`（见 pyproject [project.scripts]）→ main()。
-"""
+"""Hourly source collection and native-rich delivery with durable retry state."""
+import fcntl
+import json
+from pathlib import Path
 import sys
-import traceback
-from . import config, db, feeds, translate
-from .clients import telegram
+from . import config, db, feeds, translate, material
+from .clients import telegram, native_rich
 
 
 def format_card(source, zh_title, zh_summary, url):
-    return (
-        f"📰 *{telegram_escape(zh_title)}*\n"
-        f"_{source}_\n\n"
-        f"{telegram_escape(zh_summary)}\n\n"
-        f"[原文链接]({url})"
-    )
+    # A native heading, natural paragraphs and a source link; no HTML conversion.
+    title = zh_title.replace("\n", " ")
+    return f"# {title}\n\n{zh_summary}\n\n---\n\n来源：{source} · [阅读原文]({url})"
 
 
-def telegram_escape(s):
-    # Markdown(v1) 下只需避免标题里的下划线/星号破坏格式
-    return (s or "").replace("*", "").replace("_", "")
+def _deliver():
+    with db.conn() as c:
+        # A previous process crash after send cannot safely be retried blindly.
+        c.execute("UPDATE items SET delivery_status='unknown',delivery_error='进程中断，需确认是否已送达' WHERE delivery_status='sending'")
+        rows = db.delivery_queue(c)
+    for item in rows:
+        with db.conn() as c:
+            db.set_delivery(c, item['id'], 'sending')
+        try:
+            msg = telegram.send_rich_message(
+                format_card(item['source'], item['zh_title'], item['zh_summary'], item['url']),
+                reply_markup=telegram.review_buttons(item['id'], item['url']))
+        except native_rich.NativeRichError as exc:
+            with db.conn() as c:
+                db.set_delivery(c, item['id'], 'unknown' if exc.unconfirmed else 'failed', str(exc))
+            print(f"推送未完成 #{item['id']}: {exc}", file=sys.stderr)
+        else:
+            with db.conn() as c:
+                db.set_tg_message_id(c, item['id'], msg['message_id'])
 
 
 def run():
     db.init()
-    new_count = 0
-    with db.conn() as c:
+    lock_path = Path(config.DB_PATH).with_suffix('.run.lock')
+    with lock_path.open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return {'new_items': 0, 'busy': True}
+        _deliver()
+        new_count = 0
         for source, route, limit in config.SOURCES:
             try:
                 rows = feeds.fetch(route, limit)
-            except Exception as e:
-                print(f"[警告] 拉取 {source} 失败: {e}", file=sys.stderr)
+            except Exception:
+                print(f"拉取 {source} 失败，将在下一次采集重试", file=sys.stderr)
                 continue
             for title, url, desc in rows:
-                if db.url_exists(c, url):
-                    continue
+                with db.conn() as c:
+                    if db.url_exists(c, url):
+                        continue
+                source_text = material.fetch_material(url)
                 try:
-                    zh_title, zh_summary = translate.translate_summarize(title, desc)
-                except Exception as e:
-                    print(f"[警告] 翻译失败 {url}: {e}", file=sys.stderr)
+                    zh_title, zh_summary = translate.translate_summarize(title, desc, source_text)
+                except Exception:
+                    print(f"总结失败：{title[:100]}；等待重试", file=sys.stderr)
                     continue
-                item_id = db.insert_item(c, source, title, url, desc, zh_title, zh_summary)
-                c.commit()
-                # 推送待审卡片
-                try:
-                    msg = telegram.send_message(
-                        format_card(source, zh_title, zh_summary, url),
-                        reply_markup=telegram.review_buttons(item_id),
-                    )
-                    db.set_tg_message_id(c, item_id, msg["message_id"])
-                    c.commit()
-                except Exception as e:
-                    print(f"[警告] 推送失败 item {item_id}: {e}", file=sys.stderr)
+                with db.conn() as c:
+                    item_id = db.insert_item(c, source, title, url, desc, zh_title, zh_summary)
+                    if not source_text.startswith('（'):
+                        db.save_material(c, item_id, source_text)
                 new_count += 1
-    print(f"完成，新增 {new_count} 条待审。")
+        _deliver()
+        result = {'new_items': new_count}
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+        return result
 
 
 def main():
-    try:
-        run()
-    except Exception:
-        traceback.print_exc()
-        sys.exit(1)
+    run()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

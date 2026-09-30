@@ -29,7 +29,7 @@
 离线测试，不需要凭据或网络：
 
 ```bash
-PYTHONPATH=src /root/rss-pipeline/.venv/bin/python -m unittest discover -s tests -v
+uv run pytest tests/test_native_rich.py -v
 ```
 
 6 项测试通过：原生草稿到最终消息的内容一致性、原生失败不回退、429 重试、超时不重发且不泄露凭据、最终响应原生类型确认、空输出不发送最终消息。
@@ -37,7 +37,7 @@ PYTHONPATH=src /root/rss-pipeline/.venv/bin/python -m unittest discover -s tests
 已执行一次真实发送（此命令再次执行会发送新的测试消息）：
 
 ```bash
-/root/rss-pipeline/.venv/bin/python scripts/native_rich_demo.py \
+uv run python scripts/native_rich_demo.py \
   --env-file /root/rss-pipeline/.env --send
 ```
 

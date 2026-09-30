@@ -1,0 +1,1 @@
+5 * * * * PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin /root/.local/bin/uv run --project /root/rss-pipeline --frozen --no-dev rss-pipeline >> /root/rss-pipeline/pipeline.log 2>&1

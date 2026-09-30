@@ -4,8 +4,8 @@ import os
 # 本文件位于 src/rss_pipeline/；项目根（存放 .env / rss.db）在其上两级。
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(PACKAGE_DIR))
-ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
-DB_PATH = os.path.join(PROJECT_ROOT, "rss.db")
+ENV_PATH = os.environ.get("RSS_ENV_PATH", os.path.join(PROJECT_ROOT, ".env"))
+DB_PATH = os.environ.get("RSS_DB_PATH", os.path.join(PROJECT_ROOT, "rss.db"))
 
 
 def _load_env():
@@ -28,8 +28,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # --- 翻译厂商（可换）---
-# provider: deepseek | (将来可加 anthropic)
-TRANSLATE_PROVIDER = os.environ.get("TRANSLATE_PROVIDER", "deepseek")
+# provider: codex（默认）| deepseek（显式选择的旧后端）
+TRANSLATE_PROVIDER = os.environ.get("NEWS_PROVIDER", "codex")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 DEEPSEEK_BASE = "https://api.deepseek.com"
@@ -44,3 +44,8 @@ SOURCES = [
     ("GitHub Trending", "/github/trending/daily/any", 8),
     ("Hacker News", "/hackernews/best", 6),
 ]
+
+# Codex runtime uses saved CLI authentication, not a copied API key.
+CODEX_BIN = os.environ.get('CODEX_BIN', 'codex')
+CODEX_MODEL = os.environ.get('CODEX_MODEL') or None
+CODEX_CWD = os.environ.get('CODEX_CWD', PROJECT_ROOT)

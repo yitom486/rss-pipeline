@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-import requests
+import httpx
 
 from rss_pipeline.clients import native_rich as rich
 
@@ -58,7 +58,7 @@ class NativeRichTests(unittest.TestCase):
         sleep.assert_called_once_with(2.1)
 
     def test_timeout_redacts_credentials_and_does_not_duplicate_final(self):
-        with patch.object(rich.http, 'post', side_effect=requests.Timeout('https://api.telegram.org/bottest-secret/sendRichMessage')) as post:
+        with patch.object(rich.http, 'post', side_effect=httpx.ReadTimeout('https://api.telegram.org/bottest-secret/sendRichMessage')) as post:
             with self.assertRaises(rich.NativeRichError) as err:
                 rich.send_message('hello')
         self.assertNotIn('test-secret', str(err.exception))

@@ -1,0 +1,18 @@
+[Unit]
+Description=Personal News Assistant (Codex, native Telegram rich messages)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/rss-pipeline
+Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/root/.local/bin/uv run --frozen --no-dev rss-bot
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+StandardOutput=append:/root/rss-pipeline/bot.log
+StandardError=append:/root/rss-pipeline/bot.log
+
+[Install]
+WantedBy=multi-user.target
