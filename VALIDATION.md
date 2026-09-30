@@ -26,6 +26,8 @@
 
 ### 真实事件与 agent 主导采集升级
 
+- 20:18 UTC 已将升级代码（`2ccc230`）部署到正式目录并重启 uv 服务，active/running，启动后初步检查无更新获取错误；正式目录 42 项测试通过。
+- 升级前数据库与版本备份：`/root/rss-deploy-backups/20260930T201837Z-events`。用户会话保留原 thread，未自动重建。
 - `scripts/activity_probe.py --send` 在显式授权下使用真实 Hacker News 与 Codex，经过完整 bot producer queue 与原生草稿通道，正式消息 ID **1456**，任务 #1 已完成。
 - 实际事件：公开进度说明、news_refresh 开始、Hacker News 返回 6 条、news_refresh 完成、news_read_url 开始、读取 space.bl2.net、读取完成、生成正文；最终消息不包含临时 thinking 块。
 - `uv run python scripts/collector_probe.py` 使用真实 Codex 和隔离虚构来源/临时数据库，不发送 Telegram 消息。实际调用 news_refresh、news_preferences、news_read_url、news_queue_digest；提交两篇，逐篇投递回调长度为 1、2，GitHub 来源失败仍处理另一来源。
