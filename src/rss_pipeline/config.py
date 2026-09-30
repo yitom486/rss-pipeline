@@ -34,10 +34,8 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 DEEPSEEK_BASE = "https://api.deepseek.com"
 
-# --- 流式渲染方式 ---
-# False(默认): 成熟方案——纯文本草稿(Bot API 9.5)流式 + HTML 定稿，全端(含手机)兼容
-# True: 原生富文本(Bot API 10.1)流式 + rich 定稿，渲染更精致但需新版客户端，移动端支持尚不稳
-RICH_STREAMING = os.environ.get("RICH_STREAMING", "").lower() in ("1", "true", "yes")
+# 原生富文本为唯一流式路径，不提供普通消息降级。
+RICH_STREAMING = True
 
 # --- RSSHub 数据源（本地直连，不走 Caddy）---
 RSSHUB_BASE = os.environ.get("RSSHUB_BASE", "http://127.0.0.1:1200")

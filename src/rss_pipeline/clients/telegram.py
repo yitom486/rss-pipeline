@@ -1,7 +1,6 @@
 """Telegram Bot API 薄封装（原生 HTTP，无第三方 SDK）。
 
-裸调原因：项目走同步；且 dive 依赖的流式草稿接口（sendMessageDraft 9.5 /
-sendRichMessageDraft 10.1）主流 SDK 均不支持，只能裸写。
+原生富文本与流式预览使用 Bot API 10.3 协议，见 native_rich。
 """
 import time
 import random
@@ -65,74 +64,22 @@ def send_message_draft(draft_id, text, chat_id=None, parse_mode=None):
     )
 
 
-def send_rich_message_draft(draft_id, markdown, chat_id=None):
-    """富文本流式草稿（Bot API 10.1）：rich_message.markdown 服务端原生渲染，
-    且容忍流式中途未闭合的代码块/表格，不会 400。"""
-    return _call(
-        "sendRichMessageDraft",
-        chat_id=chat_id or config.TELEGRAM_CHAT_ID,
-        draft_id=draft_id, rich_message={"markdown": markdown},
-    )
+def send_rich_message_draft(draft_id, markdown, chat_id=None, **kwargs):
+    from . import native_rich
+    return native_rich.send_draft(draft_id, markdown, chat_id=chat_id, **kwargs)
 
 
-def send_rich_message(markdown, chat_id=None):
-    """发送原生富文本消息（Bot API 10.1）：标题/表格/代码块由服务端渲染。"""
-    return _call(
-        "sendRichMessage",
-        chat_id=chat_id or config.TELEGRAM_CHAT_ID,
-        rich_message={"markdown": markdown},
-    )
+def send_rich_message(markdown, chat_id=None, **kwargs):
+    from . import native_rich
+    return native_rich.send_message(markdown, chat_id=chat_id, **kwargs)
 
 
-def stream_to_message(chunks, header="", min_interval=0.4, chat_id=None, rich=None):
-    """流式打字机草稿 + 定稿落地。chunks 产出增量 Markdown，返回完整文本。
-    rich=None 时读 config.RICH_STREAMING：
-      False(默认/成熟): 纯文本草稿(9.5)流式 + HTML 定稿，全端含手机兼容；
-      True(尝鲜):       原生富文本草稿(10.1)流式 + rich 定稿，需新版客户端。
-    富文本路径若被拒会逐级降级到纯文本草稿 / HTML。"""
-    if rich is None:
-        rich = config.RICH_STREAMING
-    chat_id = chat_id or config.TELEGRAM_CHAT_ID
-    draft_id = random.getrandbits(31) or 1  # 非零唯一 ID
-    buf = []
-    last_push = 0.0
-    mode = "rich" if rich else "plain"
-
-    def _push():
-        nonlocal last_push, mode
-        body = "".join(buf)
-        if not body:
-            return
-        md = header + body
-        try:
-            if mode == "rich":
-                send_rich_message_draft(draft_id, md, chat_id=chat_id)
-            else:
-                send_message_draft(draft_id, md, chat_id=chat_id)  # 纯文本，免半截标签报错
-        except RuntimeError:
-            if mode == "rich":   # 富文本草稿不支持 → 降级纯文本草稿
-                mode = "plain"
-        last_push = time.time()
-
-    for ch in chunks:
-        buf.append(ch)
-        if time.time() - last_push >= min_interval:
-            _push()
-
-    # 定稿
-    final = "".join(buf)
-    if not final.strip():
-        send_message("（无回复）", markdown=False, chat_id=chat_id)
-        return final
-    md = header + final
-    if rich:  # 尝鲜：优先原生富文本，失败退 HTML
-        try:
-            send_rich_message(md, chat_id=chat_id)
-        except RuntimeError:
-            send_message(md_to_tg_html(md), parse_mode="HTML", chat_id=chat_id)
-    else:     # 成熟：HTML 定稿，全端兼容
-        send_message(md_to_tg_html(md), parse_mode="HTML", chat_id=chat_id)
-    return final
+def stream_to_message(chunks, header="", min_interval=1.1, chat_id=None, rich=None):
+    """Native rich drafts and native final only. Errors remain visible."""
+    if rich is False:
+        raise ValueError("Plain streaming is disabled; use native rich messages")
+    from . import native_rich
+    return native_rich.stream(chunks, header=header, min_interval=min_interval, chat_id=chat_id)
 
 
 def answer_callback(callback_id, text=""):
