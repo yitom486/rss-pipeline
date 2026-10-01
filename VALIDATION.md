@@ -9,6 +9,7 @@
 - 扩展 news_refresh 的来源选项；旧持久会话使用 source=all 也会读取新增来源，不重建会话。每轮合计六篇的提交上限保留。
 - 离线测试覆盖格式解析、无效条目、来源单独筛选、跨来源去重、历史条目排除、来源失败继续处理和跨来源总量上限。没有额外触发真实资讯推送；实际编辑与 Telegram 展示由后续定时任务验收。
 - `uv run pytest -q`：51 项通过；`uv run python scripts/check_codex_protocol.py` 与 `git diff --check` 通过。
+- 功能提交 `e1c9c46` 已快进合并到正式目录 master；正式目录 51 项测试再次通过。重启前只读检查无 running 任务，06:37:53 UTC 重启 rss-bot.service 后确认 active/running；定时入口下一轮自动加载新增来源，未修改 cron、凭据或数据库结构。
 
 日期：2026-09-30 UTC。开发工作树 `/root/rss-native-preview`，分支 `feature/news-assistant-v1`。正式部署目录 `/root/rss-pipeline`。
 
