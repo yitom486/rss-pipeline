@@ -20,8 +20,8 @@ def _spec(name, description, properties=None, required=None):
 
 
 TOOLS = [
-    _spec('news_refresh', '实时读取配置来源，返回条目与明确的抓取错误，不另外发送通知。source 为 all、hackernews 或 github。',
-          {'source': {'type': 'string', 'enum': ['all', 'hackernews', 'github']}}),
+    _spec('news_refresh', '实时读取配置来源，返回条目与明确的抓取错误，不另外发送通知。source 可选 all、hackernews、github、lobsters、simonwillison、infoq。',
+          {'source': {'type': 'string', 'enum': ['all', *config.SOURCE_KEYS.values()]}}),
     _spec('news_search', '按关键词搜索已采集资讯，返回真实条目。',
           {'keyword': {'type': 'string'}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20}}, ['keyword']),
     _spec('news_article', '取得条目的原文/README资料，供深入分析，返回来源与取材状态。',
@@ -77,18 +77,25 @@ def _tool(thread_id, name, args):
     chat_id, session_id = binding['chat_id'], binding['session_id']
     if name == 'news_refresh':
         results = []
+        seen = set()
         for source, route, limit in config.SOURCES:
             chosen = args.get('source', 'all')
-            if chosen != 'all' and chosen not in route:
+            if chosen != 'all' and chosen != config.SOURCE_KEYS.get(source):
                 continue
             _progress(thread_id, f'正在获取 {source}')
             try:
                 rows = feeds.fetch(route, limit)
+                unique_rows = []
+                for row in rows:
+                    if row[1] not in seen:
+                        unique_rows.append(row)
+                        seen.add(row[1])
+                rows = unique_rows
                 if binding.get('collector'):
                     with db.conn() as c:
                         rows = [(t,u,d) for t,u,d in rows if not db.url_exists(c, u)]
                     for title, url, desc in rows:
-                        binding.setdefault('candidates', {})[url] = (source, title, desc)
+                        binding.setdefault('candidates', {}).setdefault(url, (source, title, desc))
                 results.append({'source': source, 'items': [{'title': t, 'url': u, 'description': d} for t,u,d in rows]})
                 _progress(thread_id, f'{source} 已返回 {len(rows)} 条' + ('新资讯' if binding.get('collector') else '资讯'))
             except Exception:

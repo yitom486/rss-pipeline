@@ -39,11 +39,18 @@ RICH_STREAMING = True
 
 # --- RSSHub 数据源（本地直连，不走 Caddy）---
 RSSHUB_BASE = os.environ.get("RSSHUB_BASE", "http://127.0.0.1:1200")
-# 要采集的源：(名称, 路由路径, 每次取条数)
+# 要采集的源：(名称, RSSHub 路由或公开 feed URL, 每次取条数)
 SOURCES = [
     ("GitHub Trending", "/github/trending/daily/any", 8),
     ("Hacker News", "/hackernews/best", 6),
+    ("Lobsters", "https://lobste.rs/rss", 6),
+    ("Simon Willison", "https://simonwillison.net/atom/everything/", 6),
+    ("InfoQ", "https://www.infoq.com/feed/", 6),
 ]
+SOURCE_KEYS = {
+    "GitHub Trending": "github", "Hacker News": "hackernews",
+    "Lobsters": "lobsters", "Simon Willison": "simonwillison", "InfoQ": "infoq",
+}
 
 # Codex runtime uses saved CLI authentication, not a copied API key.
 CODEX_BIN = os.environ.get('CODEX_BIN', 'codex')

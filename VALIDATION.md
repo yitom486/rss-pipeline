@@ -1,5 +1,15 @@
 # 开发与验证记录
 
+## 2026-10-01：新增三个公开订阅源
+
+- 新增 Lobsters（RSS）、Simon Willison（Atom）、InfoQ（RSS），直接读取官方公开订阅地址，不依赖 RSSHub；GitHub Trending 的故障未处理。
+- 已验证三个地址 HTTP 200，并通过项目解析器各返回六条候选；检查命令 `uv run python scripts/feed_probe.py`，不调用 Codex、不写数据库、不发送 Telegram 消息。
+- RSS / Atom 统一返回文章标题、公开 HTTP(S) 链接和简介；Atom 选择文章 alternate 链接，支持 HTML 与 XHTML 正文，避免使用 self feed 链接。
+- 同一 feed 与跨来源相同 URL 去重，忽略 URL 片段；数据库继续拦截已采集 URL。不同 URL 的同一事件由模型筛选，未实现确定性的语义去重。
+- 扩展 news_refresh 的来源选项；旧持久会话使用 source=all 也会读取新增来源，不重建会话。每轮合计六篇的提交上限保留。
+- 离线测试覆盖格式解析、无效条目、来源单独筛选、跨来源去重、历史条目排除、来源失败继续处理和跨来源总量上限。没有额外触发真实资讯推送；实际编辑与 Telegram 展示由后续定时任务验收。
+- `uv run pytest -q`：51 项通过；`uv run python scripts/check_codex_protocol.py` 与 `git diff --check` 通过。
+
 日期：2026-09-30 UTC。开发工作树 `/root/rss-native-preview`，分支 `feature/news-assistant-v1`。正式部署目录 `/root/rss-pipeline`。
 
 ## 正式部署
