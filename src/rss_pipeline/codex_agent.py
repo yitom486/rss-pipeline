@@ -26,7 +26,7 @@ TOOLS = [
           {'keyword': {'type': 'string'}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20}}, ['keyword']),
     _spec('news_article', '取得条目的原文/README资料，供深入分析，返回来源与取材状态。',
           {'item_id': {'type': 'integer', 'minimum': 1}}, ['item_id']),
-    _spec('news_read_url', '读取用户提供或来源条目中的公开网页/README，供分析与报告使用。',
+    _spec('news_read_url', '读取公开网页/README，供分析与报告使用。定时任务先读候选文章，再按需补读相关公开文档；补充资料不能作为新资讯提交。',
           {'url': {'type': 'string', 'maxLength': 2048}}, ['url']),
     _spec('news_preferences', '读取用户明确保存的长期偏好。'),
     _spec('news_remember_preference', '仅在用户明确要求记住偏好时保存。value 为空表示删除该偏好。',
@@ -45,7 +45,7 @@ TOOLS = [
 QUEUE_TOOL = _spec('news_queue_digest', '定时资讯任务专用：将本轮来源中已实际读取的一篇资讯解读加入逐条推送队列。不得提交其他 URL。',
                    {'url': {'type': 'string', 'maxLength': 2048},
                     'title': {'type': 'string', 'maxLength': 200},
-                    'summary': {'type': 'string', 'maxLength': 10000}}, ['url', 'title', 'summary'])
+                    'summary': {'type': 'string'}}, ['url', 'title', 'summary'])
 COLLECTOR_TOOLS = [s for s in TOOLS if s['name'] in ('news_refresh', 'news_read_url', 'news_preferences')] + [QUEUE_TOOL]
 
 
@@ -59,7 +59,7 @@ def _validate(spec, args):
         rule = schema['properties'][key]
         if 'enum' in rule and value not in rule['enum']:
             raise ValueError('Invalid choice')
-        if rule['type'] == 'string' and (not isinstance(value, str) or len(value) > rule.get('maxLength', 10000)):
+        if rule['type'] == 'string' and (not isinstance(value, str) or ('maxLength' in rule and len(value) > rule['maxLength'])):
             raise ValueError('Invalid string argument')
         if rule['type'] == 'integer' and (type(value) is not int or not rule.get('minimum', 1) <= value <= rule.get('maximum', 2**63-1)):
             raise ValueError('Invalid integer argument')
@@ -119,7 +119,8 @@ def _tool(thread_id, name, args):
         return db.preferences(chat_id)
     if name == 'news_read_url':
         if binding.get('collector') and args['url'] not in binding.get('candidates', {}):
-            raise ValueError('URL not in this collection')
+            if not any(url in binding.get('read_urls', {}) for url in binding.get('candidates', {})):
+                raise ValueError('Read a collection article before supplementary sources')
         from urllib.parse import urlsplit
         candidate = binding.get('candidates', {}).get(args['url'])
         _progress(thread_id, '正在读取：' + (candidate[1][:120] if candidate else urlsplit(args['url']).hostname or '公开资料'))

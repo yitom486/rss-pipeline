@@ -77,13 +77,31 @@ def test_collector_queues_only_refreshed_and_read_urls_one_at_a_time(database, m
     codex_agent._tool('collector', 'news_refresh', {})
     with pytest.raises(ValueError):
         queue('https://example.com/1')
+    with pytest.raises(ValueError, match='Read a collection article'):
+        codex_agent._tool('collector', 'news_read_url', {'url': 'https://docs.example/guide'})
     for url in ['https://example.com/1', 'https://example.com/2']:
         codex_agent._tool('collector', 'news_read_url', {'url': url})
         queue(url)
     assert [len(ids) for ids in delivered] == [1, 2]
     assert queue('https://example.com/1')['already_exists']
-    with pytest.raises(ValueError):
-        codex_agent._tool('collector', 'news_read_url', {'url': 'https://unlisted.example/'})
+    supplement = codex_agent._tool('collector', 'news_read_url', {'url': 'https://docs.example/guide'})
+    assert supplement['material'] == '真实原文'
+    with pytest.raises(ValueError, match='Read a real source'):
+        queue('https://docs.example/guide')
+    assert [len(ids) for ids in delivered] == [1, 2]
+
+
+def test_digest_length_is_not_an_editorial_tool_limit(database, monkeypatch):
+    url = 'https://example.com/long-article'
+    binding = {'chat_id': '123', 'session_id': None, 'collector': True,
+               'candidates': {url: ('Hacker News', 'Long article', 'intro')},
+               'read_urls': {url: '原文资料'}, 'queued': []}
+    monkeypatch.setitem(codex_agent._bindings, 'collector', binding)
+    body = '一段必要的解释。\n\n' * 1500
+    assert len(body) > 10000
+    result = codex_agent._tool('collector', 'news_queue_digest', {'url': url, 'title': '复杂内容', 'summary': body})
+    with database.conn() as c:
+        assert database.get_item(c, result['item_id'])['zh_summary'] == body
 
 
 def test_pipeline_delegates_to_agent_and_delivers_each_queue_callback(database, monkeypatch, tmp_path):

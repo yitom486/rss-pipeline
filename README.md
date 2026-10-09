@@ -94,6 +94,8 @@ uv run rss-pipeline
 
 新资讯尽量取原文/README，再生成自然中文解读。资料不足时使用 RSS 简介并明确限制，禁止补造事实。标题和段落原生渲染，新闻下面提供阅读操作。默认没有嵌入式折叠详情，以便排查用户此前报告的客户端退出问题；这个退出原因尚未确认。
 
+编辑以可读性为第一标准，不设字数或段数目标：先讲文章主要内容，补足核心背景，在叙述中解释必要术语，用具体机制或例子解读亮点；GitHub 工具结合使用场景介绍用途、工作方式和使用入口。标题、加粗、比较表和简洁箭头示意按需使用，不固定栏目。定时编辑读过候选文章后可补读相关公开文档，补充资料不能作为额外资讯提交。详见 [EDITORIAL_POLICY.md](EDITORIAL_POLICY.md)。
+
 原生草稿通过同一个 draft_id 更新，结束后发送原生正式消息。没有普通消息、普通草稿或旧 HTML 转换回退。限流按 Telegram retry_after 处理；最终发送超时标为 unknown，不盲目重发。明确拒绝的发送标为 failed，下次采集重试。
 
 聊天任务的 App Server 事件经过 producer queue 实时更新草稿中的 `<tg-thinking>` 状态：实际工具开始、来源获取结果、原文读取、工具失败、模型的公开进度说明及正文生成。临时状态不写进最终正文；不展示原始 reasoning 或工具参数。`/status`、`/trace` 用数据库中的真实执行记录，按用户隔离。定时采集记录后台事件，并在每篇消息附取材记录入口；它不自动抢占用户正在阅读的对话草稿。
@@ -123,3 +125,20 @@ uv run rss-pipeline
 部署前备份数据库，并确保旧 bot 已停止。使用 `deploy/rss-bot.service` 的 uv 入口，cron 使用 `deploy/rss-pipeline.cron`。安装服务或修改 cron 是单独的部署动作，开发 worktree 不自动改变线上服务。
 
 本次开发与验证见 [VALIDATION.md](VALIDATION.md)。
+
+## GitHub Trending 配置
+
+当前链路是 GitHub Trending 网页 → RSSHub → 资讯编辑。RSSHub 获取热榜后调用 GitHub GraphQL 查询公开仓库资料，需要有效的 `GITHUB_ACCESS_TOKEN`，不是配置一个新的 Trending API 地址。官方路由实现见 [RSSHub trending.tsx](https://github.com/DIYgod/RSSHub/blob/master/lib/routes/github/trending.tsx)。
+
+本机 `/root/rsshub/docker-compose.yml` 已从同目录 `.env` 注入该变量。2026-10-09 只读检查：`/github/trending/daily/any` 返回 503，错误页记录 GitHub GraphQL `401 Unauthorized`；未修改令牌，来源尚未恢复。
+
+生成可用于此路由的 GitHub PAT，例如在 Settings → Developer settings → Personal access tokens → Tokens (classic) 创建专用 token，按 [GitHub GraphQL 认证说明](https://docs.github.com/en/graphql/guides/forming-calls-with-graphql) 为公开仓库选择 `public_repo`，设置有效期。在服务器编辑 `/root/rsshub/.env` 中的 `GITHUB_ACCESS_TOKEN`，不要把真实 token 放进聊天、文档或 Git。
+
+更新该文件后重新创建 RSSHub 容器，使新环境变量生效（只重启容器不会重新加载 Compose 的 `.env`）：
+
+```bash
+cd /root/rsshub
+docker compose up -d --force-recreate rsshub
+```
+
+订阅路由已配置为 `/github/trending/daily/any`；`daily` 可改为 `weekly` / `monthly`，`any` 表示不限编程语言，也可改为 `python` / `rust` / `typescript` 等。公开取源检查可运行 `uv run python scripts/feed_probe.py`（工作目录 `/root/rss-pipeline`），不调用模型、不写数据库、不发送消息。需要检查 HTTP 200 和有效 RSS 条目，不能只凭容器启动判断来源恢复。
