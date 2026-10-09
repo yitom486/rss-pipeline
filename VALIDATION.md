@@ -1,5 +1,13 @@
 # 开发与验证记录
 
+## 2026-10-09：GitHub Trending 恢复
+
+- 初次取源仍返回 RSSHub 503，错误页包含 GitHub GraphQL `401 Unauthorized`。安全比较确认 `.env` 与运行容器中的 `GITHUB_ACCESS_TOKEN` 不一致；未输出令牌、哈希或容器完整环境。
+- 使用用户更新到 `/root/rsshub/.env` 的令牌执行只读公开仓库 GraphQL 查询：HTTP 200，返回预期仓库，没有 GraphQL errors。
+- 执行 `docker compose up -d --force-recreate --no-deps rsshub` 加载新配置，Redis 服务保持运行；未修改用户令牌。
+- 使用正式项目的 `feeds.fetch` 读取配置路由 `/github/trending/daily/any`，取得八个有效项目；首个项目通过 `material.fetch_material` 返回 2639 字符资料，包含仓库元信息与 README。
+- 本次只验证真实取源与项目资料读取，不写资讯数据库、不调用模型、不发送 Telegram 消息；每轮采集仍由编辑从全部来源中选择最多六篇。
+
 ## 2026-10-09：可读性优先的编辑规则
 
 - 移除推送、速读、深入解读与技术视角的字数和段数目标，并去除提交工具对解读正文的 10000 字符限制；标题和 URL 的参数限制保留。

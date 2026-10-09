@@ -38,11 +38,11 @@ flowchart TD
 
 采集使用独立临时 Codex thread，由 agent 调用取源、读原文、读取偏好与提交解读工具，默认每次最多六篇，不强求凑数。每提交一篇立即尝试发送，失败通过投递状态重试，不等到所有文章完成再发。用户追问、报告与分析使用当前会话的持久 thread。两类任务都使用本机 Codex 登录状态。
 
-资讯来源包括 Hacker News、Lobsters（技术社区）、Simon Willison（AI 实践）和 InfoQ（工程报道）；GitHub Trending 配置保留，已有来源故障本次不处理。新增三个来源直接读取官方 RSS / Atom，不经过 RSSHub。每个新增来源取最多六条候选，所有来源合计每轮最多推送六篇；相同文章 URL（忽略片段）去重，模型再优先选择同一事件中信息更充分的报道。同一事件的不同 URL 由模型筛选，不保证自动语义去重。
+资讯来源包括 GitHub Trending（开源项目）、Hacker News、Lobsters（技术社区）、Simon Willison（AI 实践）和 InfoQ（工程报道）。GitHub Trending 已于 2026-10-09 重新加载有效令牌并验证恢复。新增三个来源直接读取官方 RSS / Atom，不经过 RSSHub。每个新增来源取最多六条候选，所有来源合计每轮最多推送六篇；相同文章 URL（忽略片段）去重，模型再优先选择同一事件中信息更充分的报道。同一事件的不同 URL 由模型筛选，不保证自动语义去重。
 
 `news_refresh` 可使用 `source=all` 或单独指定 `hackernews` / `github` / `lobsters` / `simonwillison` / `infoq`。旧会话若仍保留旧工具目录，使用 `all` 也能读取新增来源，无需重建会话。公开来源连通性检查：`uv run python scripts/feed_probe.py`，不调用 Codex、不写数据库、不发送 Telegram 消息。
 
-原生 Telegram 流式样例已由用户验收，真实 Codex 摘要、工具与重启恢复已验证。部署时使用正式目录、实际用户会话与项目 skill，已生成并发送原生流式使用说明；服务已开始轮询。用户从 Telegram 实际发起的连续对话与各按钮仍需客户端验收。GitHub Trending 的 RSSHub 503 尚未修复。
+原生 Telegram 流式样例已由用户验收，真实 Codex 摘要、工具与重启恢复已验证。部署时使用正式目录、实际用户会话与项目 skill，已生成并发送原生流式使用说明；服务已开始轮询。用户从 Telegram 实际发起的连续对话与各按钮仍需客户端验收。GitHub Trending 的 RSSHub 503 已修复并验证实际取源。
 
 ## 开发
 
@@ -130,7 +130,7 @@ uv run rss-pipeline
 
 当前链路是 GitHub Trending 网页 → RSSHub → 资讯编辑。RSSHub 获取热榜后调用 GitHub GraphQL 查询公开仓库资料，需要有效的 `GITHUB_ACCESS_TOKEN`，不是配置一个新的 Trending API 地址。官方路由实现见 [RSSHub trending.tsx](https://github.com/DIYgod/RSSHub/blob/master/lib/routes/github/trending.tsx)。
 
-本机 `/root/rsshub/docker-compose.yml` 已从同目录 `.env` 注入该变量。2026-10-09 只读检查：`/github/trending/daily/any` 返回 503，错误页记录 GitHub GraphQL `401 Unauthorized`；未修改令牌，来源尚未恢复。
+本机 `/root/rsshub/docker-compose.yml` 已从同目录 `.env` 注入该变量。2026-10-09 检查发现文件中的新令牌有效，但运行中的容器仍使用旧令牌，导致路由返回 503 / GitHub GraphQL `401 Unauthorized`。重新创建 RSSHub 容器加载用户更新的令牌后，项目解析器取得八个有效热榜项目，并成功读取首个项目的元信息和 README；来源已恢复。
 
 生成可用于此路由的 GitHub PAT，例如在 Settings → Developer settings → Personal access tokens → Tokens (classic) 创建专用 token，按 [GitHub GraphQL 认证说明](https://docs.github.com/en/graphql/guides/forming-calls-with-graphql) 为公开仓库选择 `public_repo`，设置有效期。在服务器编辑 `/root/rsshub/.env` 中的 `GITHUB_ACCESS_TOKEN`，不要把真实 token 放进聊天、文档或 Git。
 
