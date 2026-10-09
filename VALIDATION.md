@@ -1,5 +1,14 @@
 # 开发与验证记录
 
+## 2026-10-09：一篇真实 GitHub 资讯推送验收
+
+- 用户明确授权拉取并推送一篇样例。使用现有 ChatGPT 登录和正式 `collect_news`、应用工具、投递代码；本次进程只配置 GitHub 来源，提交上限为一篇，投递队列只允许本次新增条目。使用正式采集锁，不消费 Telegram 更新。
+- 任务 **210** 完成，实际调用 `news_refresh`、`news_preferences`、两次 `news_read_url` 和 `news_queue_digest`，取得 README 并补读项目发布说明。
+- 条目 **1315**：RAD Debugger；解读正文 1397 字符，数据库状态 `sent`，Telegram 正式消息 **1626**。API 返回原生 `rich_message`，包含 heading、paragraph、divider，附四行实际阅读与反馈按钮；本轮没有生成图片或发送额外样例。
+- 人工检查正文覆盖主要用途、具体调试场景、调用栈/PDB/RDI/链接器等解释、工作机制、使用入口和影响采用的平台限制。补查官方 releases/latest：v0.9.29-alpha，确认初步 Linux x64 支持、没有预编译 Linux 包、不支持 fork/vfork 和选中线程断点的描述。
+- 正文正确指出 README 的平台描述与最新发布说明不同。当前仍有较长自然段，流程示意嵌在段落中；API 验收不代表手机端视觉验收，实际客户端阅读感受待用户反馈。
+- 生成正文和只含安全元数据的验收结果保存在被忽略的 `reports/live-previews/`，未提交数据库、运行时正文或凭据。
+
 ## 2026-10-09：GitHub Trending 恢复
 
 - 初次取源仍返回 RSSHub 503，错误页包含 GitHub GraphQL `401 Unauthorized`。安全比较确认 `.env` 与运行容器中的 `GITHUB_ACCESS_TOKEN` 不一致；未输出令牌、哈希或容器完整环境。
