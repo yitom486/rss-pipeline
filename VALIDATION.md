@@ -1,5 +1,16 @@
 # 开发与验证记录
 
+## 2026-10-09：Hacker News 取源修复与真实新闻样例
+
+- 用户明确授权拉取并推送一篇 Hacker News 新闻。GitHub 样例仅在测试进程临时限定来源，正式配置一直保留 Hacker News。
+- 首次样例遇到正在运行的定时采集锁，等待原任务结束后执行；任务 212 的 RSSHub `/hackernews/best` 两次取源失败，没有提交或发送任何消息。
+- 直接诊断本机路由 HTTP 503；Hacker News 官方 `https://news.ycombinator.com/rss` 返回 HTTP 200，正式解析器取得六条有效文章。配置改为直连官方首页 RSS，选文范围从原 best 榜单改为首页，不再依赖 RSSHub。
+- `uv run pytest -q`：52 项通过；`git diff --check` 通过。空闲时重启正式机器人加载取源配置，定时进程在下次运行使用新地址。
+- 使用正式 collector 与投递代码执行单篇真实样例，任务 **213** 完成；实际调用 `news_refresh`、`news_preferences`、`news_read_url`、`news_queue_digest`。
+- 条目 **1320**：LWN《Reducing undefined behavior in the C language》，中文标题《C 正在减少“未定义行为”，但离完整内存安全仍有距离》。原文资料 9794 字符，解读 1519 字符，Telegram 正式消息 **1631**，数据库状态 `sent`。
+- 返回原生 heading、paragraph、divider 和四行阅读/反馈按钮；本次成功样例只推送一篇，没有生成图片。核对正文中的编译优化例子、“禁止时间旅行”、C2y 草案减少 45 处未定义行为及内存安全讨论均有原文依据；客户端视觉体验待用户阅读。
+- 运行时正文和安全元数据保存于被忽略的 `reports/live-previews/`，未提交凭据、数据库或运行时文章。
+
 ## 2026-10-09：一篇真实 GitHub 资讯推送验收
 
 - 用户明确授权拉取并推送一篇样例。使用现有 ChatGPT 登录和正式 `collect_news`、应用工具、投递代码；本次进程只配置 GitHub 来源，提交上限为一篇，投递队列只允许本次新增条目。使用正式采集锁，不消费 Telegram 更新。
