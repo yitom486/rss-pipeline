@@ -39,7 +39,7 @@ flowchart TD
 
 采集使用独立临时 Codex thread，由 agent 调用取源、读原文、读取偏好与提交解读工具，默认每次最多六篇，不强求凑数。每提交一篇立即尝试发送，失败通过投递状态重试，不等到所有文章完成再发。用户追问、报告与分析使用当前会话的持久 thread。两类任务都使用本机 Codex 登录状态。
 
-资讯来源包括 GitHub Trending（开源项目）、Hacker News、Lobsters（技术社区）、Simon Willison（AI 实践）和 InfoQ（工程报道）。GitHub Trending 已于 2026-10-09 重新加载有效令牌并验证恢复。Hacker News 同日发现 RSSHub `/hackernews/best` 返回 503，改为直接读取官方首页 RSS `https://news.ycombinator.com/rss`，这与原 best 榜单的选文范围不同。除 GitHub 外的来源直接读取官方 RSS / Atom，不经过 RSSHub。各来源取有限条候选，所有来源合计每轮最多推送六篇；相同文章 URL（忽略片段）去重，模型再优先选择同一事件中信息更充分的报道。同一事件的不同 URL 由模型筛选，不保证自动语义去重。
+资讯来源包括 GitHub Trending（开源项目）、Hacker News、Lobsters（技术社区）、Simon Willison（AI 实践）和 InfoQ（工程报道）。GitHub Trending 已于 2026-10-09 重新加载有效令牌并验证恢复。Hacker News 同日发现 RSSHub `/hackernews/best` 返回 503，改为直接读取官方首页 RSS `https://news.ycombinator.com/rss`，这与原 best 榜单的选文范围不同。其他来源直接读取官方 RSS / Atom 或官方文章索引，不经过 RSSHub。各来源取有限条候选，所有来源合计每轮最多推送六篇；相同文章 URL（忽略片段）去重，模型再优先选择同一事件中信息更充分的报道。同一事件的不同 URL 由模型筛选，不保证自动语义去重。
 
 2026-10-10 新增 OpenAI、Anthropic、DeepSeek 官方来源。OpenAI 直接读取官方 RSS，保留发布日期和分类，取 24 条候选以覆盖被客户案例挤到后面的研究和技术文章；Anthropic 直接解析研究、工程、新闻三个官方索引，各取四条候选；DeepSeek 从官方 Research & News 取十条发布/研究候选，包括官网列出的 arXiv 论文和官方 GitHub 项目。HTML 索引以有明确标题的文章卡片为准，排除导航与页脚，并按可识别的发布日期排序；未注明日期的精选卡保留，但不声称刚发布。索引结构变化且无文章时明确失败，不假装成功。官方文章优先研究、工程和重要更新，降低一般商业宣传优先级；厂商主张不等同于独立验证。所有来源仍合计每轮最多六篇。
 

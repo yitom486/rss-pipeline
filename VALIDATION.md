@@ -80,7 +80,9 @@
 - 定向补推限制真实工具取源范围并在写库前强制每家公司最多两篇；总量六篇与既有 URL 去重保留。提供默认只读、显式 `--send` 的脚本，复用采集锁、逐篇取材、原生投递和 trace。
 - `uv run pytest -q`：64 项离线测试通过；覆盖新公司单独取源、日期与标题提取、官方论文链接、三个栏目、结构变化失败、定向来源隔离与公司上限。协议 schema 校验及 `git diff --check` 通过。
 - 部署前任务只读检查无 running，投递状态 1376 条 sent、无待发送条目；SQLite backup API 备份 `/root/rss-deploy-backups/20261010T173043Z-company-sources/rss.db`。
-- 实际部署与补推结果待下文记录。
+- 功能提交 `590db6e` 部署在正式目录，重启 `rss-bot.service` 后确认 active；原有每小时第 5 分钟 cron 自动加载八个来源，未修改凭据、调度频率或重建用户会话。
+- 用户授权下执行 `uv run python scripts/company_news.py --send`，真实任务 **#266** completed，共五篇：Anthropic 两篇（越界案例、OSS Scanner），DeepSeek 一篇（V4.1-Flash），OpenAI 两篇（数学材料公开、Ironclad 智能体评测）。条目 #1377–#1381 全部 sent，Telegram 正式消息 ID **1713–1717**，均带原文、阅读操作与 trace 入口。
+- OpenAI 部分 HTTP 正文读取失败，编辑通过网页读取与官方仓库补充资料；生成正文标明来源范围。DeepSeek 仅推较新的发布文章，未为凑第二篇再推较早的同系列论文。Anthropic 长文截取范围在正文明确说明。真实原生正式消息 API 返回成功；客户端实际阅读与折叠操作不在本次验收范围。
 
 ## 2026-10-01：新增三个公开订阅源
 
