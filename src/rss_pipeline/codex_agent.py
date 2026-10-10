@@ -20,7 +20,7 @@ def _spec(name, description, properties=None, required=None):
 
 
 TOOLS = [
-    _spec('news_refresh', '实时读取配置来源，返回条目与明确的抓取错误，不另外发送通知。source 可选 all、hackernews、github、lobsters、simonwillison、infoq。',
+    _spec('news_refresh', '实时读取配置来源，返回条目与明确的抓取错误，不另外发送通知。source 可选 all、hackernews、github、lobsters、simonwillison、infoq、openai、anthropic、deepseek。',
           {'source': {'type': 'string', 'enum': ['all', *config.SOURCE_KEYS.values()]}}),
     _spec('news_search', '按关键词搜索已采集资讯，返回真实条目。',
           {'keyword': {'type': 'string'}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20}}, ['keyword']),
@@ -79,6 +79,8 @@ def _tool(thread_id, name, args):
         results = []
         seen = set()
         for source, route, limit in config.SOURCES:
+            if binding.get('source_keys') is not None and config.SOURCE_KEYS.get(source) not in binding['source_keys']:
+                continue
             chosen = args.get('source', 'all')
             if chosen != 'all' and chosen != config.SOURCE_KEYS.get(source):
                 continue
@@ -171,11 +173,16 @@ def _queue_digest(binding, args):
             return {'already_exists': True}
         if len(binding['queued']) >= 6:
             raise ValueError('Collection budget reached')
+        if binding.get('per_source_limit') is not None:
+            source_count = binding.setdefault('source_counts', {}).get(source, 0)
+            if source_count >= binding['per_source_limit']:
+                raise ValueError('Per-source collection budget reached')
         item_id = db.insert_item(c, source, title, args['url'], desc, args['title'], args['summary'])
         if not text.startswith('（'):
             db.save_material(c, item_id, text)
         c.execute('UPDATE items SET collection_task_id=? WHERE id=?', (binding.get('task_id'), item_id))
     binding['queued'].append(item_id)
+    binding.setdefault('source_counts', {})[source] = binding.get('source_counts', {}).get(source, 0) + 1
     if binding.get('on_queued'):
         binding['on_queued']()
     return {'item_id': item_id, 'queued': True}
@@ -186,16 +193,28 @@ def _progress(thread_id, message, status='running'):
         _server.publish_activity(thread_id, activity.event('tool_progress', message, status=status))
 
 
-def collect_news(chat_id, *, on_queued=None):
+def collect_news(chat_id, *, on_queued=None, source_keys=None, per_source_limit=None):
+    if source_keys is not None:
+        source_keys = frozenset(source_keys)
+        if not source_keys or not source_keys <= set(config.SOURCE_KEYS.values()):
+            raise ValueError('Unknown collection sources')
+    if per_source_limit is not None and (type(per_source_limit) is not int or not 1 <= per_source_limit <= 6):
+        raise ValueError('Invalid per-source limit')
     task_id = db.start_task(chat_id, '定时资讯采集')
     thread_id = None
     try:
         api = server()
         thread_id = api.create_thread(COLLECTOR_TOOLS, ephemeral=True)['thread']['id']
         binding = {'chat_id': str(chat_id), 'session_id': None, 'collector': True, 'task_id': task_id,
-                   'candidates': {}, 'read_urls': {}, 'queued': [], 'on_queued': on_queued}
+                   'candidates': {}, 'read_urls': {}, 'queued': [], 'on_queued': on_queued,
+                   'source_keys': source_keys, 'per_source_limit': per_source_limit}
         _bindings[thread_id] = binding
-        for value in api.turn(thread_id, prompts.COLLECTOR, emit_activity=True):
+        prompt = prompts.COLLECTOR
+        if source_keys is not None:
+            prompt += '\n本次是用户明确要求的定向补推，只获取这些来源：' + ', '.join(sorted(source_keys)) + '。'
+        if per_source_limit is not None:
+            prompt += f'\n从每个指定来源选择一至{per_source_limit}篇最近且有实质价值的未推送文章，优先研究与工程实践；不要用其他来源凑数。某来源无可用内容时如实说明。'
+        for value in api.turn(thread_id, prompt, emit_activity=True):
             if isinstance(value, dict):
                 if value['event'] != 'commentary_live':
                     db.task_event(task_id, value)

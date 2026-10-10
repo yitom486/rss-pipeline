@@ -12,6 +12,7 @@ flowchart TD
     Pipeline --> Editor[Codex 编辑任务：选择与逐篇分析]
     Sources[GitHub Trending] --> RSSHub[本机 RSSHub]
     Direct[Hacker News / Lobsters / Simon Willison / InfoQ] --> Fetch
+    Official[OpenAI / Anthropic / DeepSeek 官方发布与研究] --> Fetch
     RSSHub --> Fetch[HTTPX：读取 RSS 与原文 / README]
     Editor <--> Fetch
     Editor --> Submit[news_queue_digest：提交一篇解读]
@@ -40,7 +41,11 @@ flowchart TD
 
 资讯来源包括 GitHub Trending（开源项目）、Hacker News、Lobsters（技术社区）、Simon Willison（AI 实践）和 InfoQ（工程报道）。GitHub Trending 已于 2026-10-09 重新加载有效令牌并验证恢复。Hacker News 同日发现 RSSHub `/hackernews/best` 返回 503，改为直接读取官方首页 RSS `https://news.ycombinator.com/rss`，这与原 best 榜单的选文范围不同。除 GitHub 外的来源直接读取官方 RSS / Atom，不经过 RSSHub。各来源取有限条候选，所有来源合计每轮最多推送六篇；相同文章 URL（忽略片段）去重，模型再优先选择同一事件中信息更充分的报道。同一事件的不同 URL 由模型筛选，不保证自动语义去重。
 
-`news_refresh` 可使用 `source=all` 或单独指定 `hackernews` / `github` / `lobsters` / `simonwillison` / `infoq`。旧会话若仍保留旧工具目录，使用 `all` 也能读取新增来源，无需重建会话。公开来源连通性检查：`uv run python scripts/feed_probe.py`，不调用 Codex、不写数据库、不发送 Telegram 消息。
+2026-10-10 新增 OpenAI、Anthropic、DeepSeek 官方来源。OpenAI 直接读取官方 RSS，保留发布日期和分类，取 24 条候选以覆盖被客户案例挤到后面的研究和技术文章；Anthropic 直接解析研究、工程、新闻三个官方索引，各取四条候选；DeepSeek 从官方 Research & News 取十条发布/研究候选，包括官网列出的 arXiv 论文和官方 GitHub 项目。HTML 索引以有明确标题的文章卡片为准，排除导航与页脚，并按可识别的发布日期排序；未注明日期的精选卡保留，但不声称刚发布。索引结构变化且无文章时明确失败，不假装成功。官方文章优先研究、工程和重要更新，降低一般商业宣传优先级；厂商主张不等同于独立验证。所有来源仍合计每轮最多六篇。
+
+`news_refresh` 可使用 `source=all` 或单独指定 `hackernews` / `github` / `lobsters` / `simonwillison` / `infoq` / `openai` / `anthropic` / `deepseek`。旧会话若仍保留旧工具目录，使用 `all` 也能读取新增来源，无需重建会话。公开来源连通性检查：`uv run python scripts/feed_probe.py`，不调用 Codex、不写数据库、不发送 Telegram 消息。
+
+官方来源候选检查：`uv run python scripts/company_news.py`，只读取来源；用户明确要求补推时可运行 `uv run python scripts/company_news.py --send`，通过采集锁与真实编辑工具只选择这三家公司，每家公司最多两篇、合计最多六篇，逐篇保存并推送，既有 URL 不重发。论文取材当前仅支持网页，取得 arXiv 摘要不等于读过 PDF 全文。
 
 原生 Telegram 流式样例已由用户验收，真实 Codex 摘要、工具与重启恢复已验证。部署时使用正式目录、实际用户会话与项目 skill，已生成并发送原生流式使用说明；服务已开始轮询。用户从 Telegram 实际发起的连续对话与各按钮仍需客户端验收。GitHub Trending 的 RSSHub 503 已修复并验证实际取源。
 

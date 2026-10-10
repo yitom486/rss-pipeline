@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from . import config
 from .clients import http
+from . import official_sources
 
 TIMEOUT = 30
 ATOM = '{http://www.w3.org/2005/Atom}'
@@ -30,6 +31,8 @@ def _article_url(base, value):
 
 def fetch(route, limit):
     """返回 [(title, url, desc), ...]"""
+    if route in official_sources.INDEXES:
+        return official_sources.fetch(route, limit)
     url = route if route.startswith(('https://', 'http://')) else f"{config.RSSHUB_BASE}{route}"
     r = http.get(url, timeout=TIMEOUT)
     r.raise_for_status()
@@ -55,6 +58,9 @@ def fetch(route, limit):
             title = _text(it.find('title'))
             article_url = _article_url(url, it.findtext('link'))
             desc = _text(it.find('description'))
+            metadata = [_text(it.find('pubDate')), _text(it.find('category'))]
+            if any(metadata):
+                desc = ' · '.join(value for value in metadata if value) + '\n' + desc
         if title and article_url and article_url not in seen:
             out.append((title, article_url, desc))
             seen.add(article_url)

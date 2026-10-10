@@ -62,6 +62,7 @@ def test_unrecognized_xml_is_reported_as_failure(monkeypatch):
 
 @pytest.mark.parametrize('selected,expected', [
     ('lobsters', 'Lobsters'), ('simonwillison', 'Simon Willison'), ('infoq', 'InfoQ'),
+    ('openai', 'OpenAI'), ('anthropic', 'Anthropic'), ('deepseek', 'DeepSeek'),
 ])
 def test_new_sources_can_be_refreshed_individually(monkeypatch, selected, expected):
     monkeypatch.setitem(codex_agent._bindings, 'reader', {'chat_id': '123', 'session_id': 1})

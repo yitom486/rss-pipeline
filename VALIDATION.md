@@ -72,6 +72,16 @@
 - GitHub Trending 只读诊断：本机路由 HTTP 503，错误页明确包含 GitHub GraphQL `401 Unauthorized`。Compose 已注入 `GITHUB_ACCESS_TOKEN`；尚未更换令牌或恢复该来源，配置步骤已写入 README。
 - 本轮未调用模型生成新的资讯样例，也未发送 Telegram 消息；测试验证流程行为，生成质量与手机端图片显示仍需实际阅读验收。
 
+## 2026-10-10：新增官方 AI 公司来源
+
+- 用户明确授权订阅 OpenAI / Anthropic / DeepSeek 并补推每家最近一至两篇有价值内容。
+- OpenAI 官方 RSS，Anthropic 研究/工程/新闻索引，DeepSeek 官网 Research & News 均已实际 HTTP 200 验证；官方论文链接只取官网研究卡片中明确列出的 arXiv / deepseek-ai 仓库。
+- 保留发布日期与来源栏目；有日期文章按日期排序，未标日期精选卡不冒充最新。排除导航、团队入口、页脚重复与伪外链；索引无文章时明确失败。
+- 定向补推限制真实工具取源范围并在写库前强制每家公司最多两篇；总量六篇与既有 URL 去重保留。提供默认只读、显式 `--send` 的脚本，复用采集锁、逐篇取材、原生投递和 trace。
+- `uv run pytest -q`：64 项离线测试通过；覆盖新公司单独取源、日期与标题提取、官方论文链接、三个栏目、结构变化失败、定向来源隔离与公司上限。协议 schema 校验及 `git diff --check` 通过。
+- 部署前任务只读检查无 running，投递状态 1376 条 sent、无待发送条目；SQLite backup API 备份 `/root/rss-deploy-backups/20261010T173043Z-company-sources/rss.db`。
+- 实际部署与补推结果待下文记录。
+
 ## 2026-10-01：新增三个公开订阅源
 
 - 新增 Lobsters（RSS）、Simon Willison（Atom）、InfoQ（RSS），直接读取官方公开订阅地址，不依赖 RSSHub；GitHub Trending 的故障未处理。

@@ -1,6 +1,6 @@
 # 项目工作约定
 
-本项目是个人科技资讯助手：GitHub Trending / Hacker News / Lobsters / Simon Willison / InfoQ 取材，Codex App Server 持久对话，Telegram 原生富文本阅读与交互。
+本项目是个人科技资讯助手：GitHub Trending / Hacker News / Lobsters / Simon Willison / InfoQ / OpenAI / Anthropic / DeepSeek 取材，Codex App Server 持久对话，Telegram 原生富文本阅读与交互。
 
 ## 技术与工程
 

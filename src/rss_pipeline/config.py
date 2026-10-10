@@ -46,10 +46,14 @@ SOURCES = [
     ("Lobsters", "https://lobste.rs/rss", 6),
     ("Simon Willison", "https://simonwillison.net/atom/everything/", 6),
     ("InfoQ", "https://www.infoq.com/feed/", 6),
+    ("OpenAI", "https://openai.com/news/rss.xml", 24),
+    ("Anthropic", "https://www.anthropic.com/research", 12),
+    ("DeepSeek", "https://www.deepseek.com/en/news/", 10),
 ]
 SOURCE_KEYS = {
     "GitHub Trending": "github", "Hacker News": "hackernews",
     "Lobsters": "lobsters", "Simon Willison": "simonwillison", "InfoQ": "infoq",
+    "OpenAI": "openai", "Anthropic": "anthropic", "DeepSeek": "deepseek",
 }
 
 # Codex runtime uses saved CLI authentication, not a copied API key.
