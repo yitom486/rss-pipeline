@@ -37,7 +37,7 @@ TOOLS = [
           {'report_id': {'type': 'integer', 'minimum': 1}}, ['report_id']),
     _spec('news_export_report', '仅当用户要求下载或导出时，将属于当前用户的报告作为 Markdown 文件发送到 Telegram。',
           {'report_id': {'type': 'integer', 'minimum': 1}}, ['report_id']),
-    _spec('news_rich_layout', '为当前答案添加原生阅读操作；可按用户请求加入补充说明。默认不折叠详情。',
+    _spec('news_rich_layout', '为当前答案添加原生阅读操作；补充细节可按需折叠，核心解释直接展示。',
           {'item_id': {'type': 'integer', 'minimum': 1},
            'note': {'type': 'string', 'maxLength': 4000}}, ['item_id']),
 ]

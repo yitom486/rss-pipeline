@@ -49,6 +49,35 @@ class NativeRichTests(unittest.TestCase):
                 rich.stream(['hello'])
         self.assertEqual(post.call_count, 1)
 
+    def test_structured_markdown_survives_chunk_boundaries_and_final_save(self):
+        body = (
+            '## 实现比较\n\n| 环节 | 作用 |\n| --- | --- |\n| 校验 | 检查来源 |\n\n'
+            '依据[^source1]，计算为 $x^2$。\n\n'
+            '<details><summary>展开实现细节</summary>\n\n'
+            '**补充说明**\n\n</details>\n\n'
+            '[^source1]: [案例](https://example.org/case)'
+        )
+        # Split inside the HTML opening tag, footnote and formula; all must be
+        # preserved in the complete draft and final native request, not escaped.
+        chunks = [body[index:index + 7] for index in range(0, len(body), 7)]
+        with patch.object(rich.http, 'post', side_effect=self.post):
+            result = rich.stream(chunks)
+        self.assertEqual(result, body)
+        for method, payload in self.calls[-2:]:
+            self.assertIn(method, ('sendRichMessageDraft', 'sendRichMessage'))
+            self.assertEqual(payload['rich_message'], {'markdown': body})
+            self.assertNotIn('parse_mode', payload)
+
+    def test_html_is_native_rich_content_for_draft_and_final(self):
+        body = '<h2>背景</h2><details><summary>依据</summary><p>说明</p></details>'
+        with patch.object(rich.http, 'post', side_effect=self.post):
+            rich.send_draft(5, body, format='html')
+            rich.send_message(body, format='html')
+        self.assertEqual([method for method, _ in self.calls], ['sendRichMessageDraft', 'sendRichMessage'])
+        for _, payload in self.calls:
+            self.assertEqual(payload['rich_message'], {'html': body})
+            self.assertNotIn('parse_mode', payload)
+
     def test_rate_limit_retries_same_native_method(self):
         replies = [Reply({'ok': False, 'error_code': 429, 'parameters': {'retry_after': 2}}), Reply({'ok': True, 'result': True})]
         with patch.object(rich.http, 'post', side_effect=replies) as post, patch.object(rich.time, 'sleep') as sleep:
