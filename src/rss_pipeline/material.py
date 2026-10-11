@@ -3,6 +3,7 @@ import re
 import html
 import ipaddress
 import socket
+import json
 from urllib.parse import urljoin
 from urllib.parse import urlsplit
 from html.parser import HTMLParser
@@ -81,18 +82,23 @@ def _github_material(owner, repo):
 
 class ArticleText(HTMLParser):
     """Prefer article/main content; preserve paragraph breaks, exclude chrome."""
-    def __init__(self):
+    def __init__(self, base_url=''):
         super().__init__()
         self.parts = []
         self.article = []
         self.skip = 0
         self.depth = 0
+        self.base_url = base_url
+        self.images = []
+        self.article_images = []
 
     def handle_starttag(self, tag, attrs):
         if tag in ('script', 'style', 'nav', 'header', 'footer', 'noscript'):
             self.skip += 1
         if tag in ('article', 'main'):
             self.depth += 1
+        if tag == 'img' and not self.skip:
+            self._image(dict(attrs))
         if tag in ('p', 'br', 'div', 'h1', 'h2', 'h3', 'li'):
             self.handle_data('\n')
 
@@ -111,8 +117,60 @@ class ArticleText(HTMLParser):
                 self.article.append(data)
 
     def text(self):
-        parts = self.article if len(''.join(self.article).strip()) >= 100 else self.parts
-        return re.sub(r'\n\s*\n+', '\n\n', ''.join(parts)).strip()[:MAX_TEXT]
+        use_article = len(''.join(self.article).strip()) >= 100
+        parts = self.article if use_article else self.parts
+        body = re.sub(r'\n\s*\n+', '\n\n', ''.join(parts)).strip()
+        if not body:
+            return ''
+        images = self.article_images if use_article else self.images
+        # Keep media metadata inside the model's existing material budget.
+        # These are source references, not image understanding or verified pixels.
+        if images:
+            appendix = '\n\n原文图片候选（网页提供的地址和说明，未进行图片视觉分析；按相关性选择）：\n'
+            selected = []
+            for image in images[:8]:
+                if len(json.dumps([*selected, image], ensure_ascii=False)) > 5000:
+                    break
+                selected.append(image)
+            appendix += json.dumps(selected, ensure_ascii=False)
+            return body[:MAX_TEXT - len(appendix)] + appendix
+        return body[:MAX_TEXT]
+
+    def _image(self, attrs):
+        target = self.article_images if self.depth else self.images
+        if len(target) >= 24:
+            return
+        # Prefer lazy-loaded originals over placeholder src values.
+        source = attrs.get('data-src') or attrs.get('data-original') or attrs.get('src') or ''
+        url = urljoin(self.base_url, source.strip())
+        try:
+            parsed = urlsplit(url)
+            if (parsed.scheme not in ('http', 'https') or not parsed.hostname
+                    or parsed.username or parsed.password or len(url) > 2048):
+                return
+            host = parsed.hostname.lower()
+            if host == 'localhost' or host.endswith(('.local', '.internal')):
+                return
+            try:
+                if not ipaddress.ip_address(host).is_global:
+                    return
+            except ValueError:
+                pass
+        except ValueError:
+            return
+        if not source or parsed.path.lower().endswith('.svg'):
+            return
+        if any((attrs.get(size) or '').isdigit() and int(attrs[size]) <= 2 for size in ('width', 'height')):
+            return
+        if any(image['url'] == url for image in target):
+            return
+        context = ''.join(self.article if self.depth else self.parts)[-240:].strip()
+        image = {'url': url, 'alt': (attrs.get('alt') or '')[:200],
+                 'title': (attrs.get('title') or '')[:200], 'preceding_text': context}
+        if len(self.images) < 24 and not any(existing['url'] == url for existing in self.images):
+            self.images.append(image)
+        if self.depth:
+            self.article_images.append(image)
 
 
 def _web_material(url):
@@ -134,7 +192,7 @@ def _web_material(url):
                     if len(data) >= MAX_BYTES:
                         break
                 text = bytes(data[:MAX_BYTES]).decode(r.encoding or 'utf-8', errors='replace')
-                parser = ArticleText()
+                parser = ArticleText(base_url=url)
                 parser.feed(text)
                 return parser.text() or '（未能取得正文）'
     except Exception:

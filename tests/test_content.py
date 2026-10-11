@@ -13,6 +13,49 @@ def test_article_extraction_omits_navigation_and_preserves_paragraphs():
     assert '\n' in body
 
 
+def test_article_images_preserve_resolved_sources_and_captions_without_chrome():
+    parser = material.ArticleText('https://publisher.example/posts/news/')
+    parser.feed('<nav><img src="/logo.png"></nav><img src="/sidebar.png">'
+                '<main><p>' + '正文事实。' * 40 + '</p>'
+                '<figure><img src="placeholder.gif" data-src="../../media/diagram.png" '
+                'alt="调用关系图"><figcaption>图一：请求进入处理器。</figcaption></figure>'
+                '<img src="../../media/diagram.png"><img src="pixel.gif" width="1">'
+                '<img src="data:image/png;base64,abc"><img src="http://127.0.0.1/a.png">'
+                '<img src="javascript:alert(1)"></main>')
+    body = parser.text()
+    images = json.loads(body.split('按相关性选择）：\n', 1)[1])
+    assert len(images) == 1
+    assert images[0]['url'] == 'https://publisher.example/media/diagram.png'
+    assert images[0]['alt'] == '调用关系图'
+    assert '正文事实' in images[0]['preceding_text']
+    assert '图一：请求进入处理器。' in body
+    assert 'logo.png' not in body
+    assert 'sidebar.png' not in body
+
+
+def test_image_metadata_stays_within_material_budget_and_does_not_fake_body():
+    parser = material.ArticleText('https://publisher.example/news')
+    parser.feed('<main><p>' + '正文' * material.MAX_TEXT + '</p>' + ''.join(
+        f'<img src="https://cdn.example/{index}/' + 'x' * 1800 + '.png" alt="图示">'
+        for index in range(10)) + '</main>')
+    body = parser.text()
+    assert len(body) <= material.MAX_TEXT
+    images = json.loads(body.split('按相关性选择）：\n', 1)[1])
+    assert images
+    assert body.startswith('正文')
+    empty = material.ArticleText('https://publisher.example/news')
+    empty.feed('<img src="/cover.png">')
+    assert empty.text() == ''
+
+
+def test_page_image_budget_does_not_hide_later_article_images():
+    parser = material.ArticleText('https://publisher.example/news')
+    parser.feed(''.join(f'<img src="/decoration-{index}.png">' for index in range(30))
+                + '<main><p>' + '正文事实。' * 40 + '</p><img src="/diagram.png"></main>')
+    images = json.loads(parser.text().split('按相关性选择）：\n', 1)[1])
+    assert [image['url'] for image in images] == ['https://publisher.example/diagram.png']
+
+
 def test_invalid_model_json_does_not_become_a_fake_summary(monkeypatch):
     monkeypatch.setattr(translate.config, 'TRANSLATE_PROVIDER', 'deepseek')
     monkeypatch.setattr(translate, '_chat', lambda *args: 'not JSON')
