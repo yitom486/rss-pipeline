@@ -5,6 +5,7 @@ description = "RSS 采集 → AI 翻译摘要 → Telegram 审核 → 发布 流
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28,<1",
+    "playwright>=1.50,<2",
 ]
 
 # 控制台入口：uv sync 后会在 .venv/bin/ 生成可执行脚本，

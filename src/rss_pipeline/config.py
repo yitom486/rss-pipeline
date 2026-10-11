@@ -49,12 +49,19 @@ SOURCES = [
     ("OpenAI", "https://openai.com/news/rss.xml", 24),
     ("Anthropic", "https://www.anthropic.com/research", 12),
     ("DeepSeek", "https://www.deepseek.com/en/news/", 10),
+    ("Linux DO", os.environ.get('LINUXDO_FEED_URL', 'https://linux.do/latest.rss'), 8),
+    ("Reddit Technology", "https://www.reddit.com/r/technology/.rss", 8),
 ]
 SOURCE_KEYS = {
     "GitHub Trending": "github", "Hacker News": "hackernews",
     "Lobsters": "lobsters", "Simon Willison": "simonwillison", "InfoQ": "infoq",
     "OpenAI": "openai", "Anthropic": "anthropic", "DeepSeek": "deepseek",
+    "Linux DO": "linuxdo", "Reddit Technology": "reddit",
 }
+
+DIAGRAM_SKILL_PATH = os.path.join(os.environ.get('CODEX_HOME', os.path.expanduser('~/.codex')), 'skills', 'diagram-design')
+# First-use style confirmation is required by the installed skill.
+DIAGRAM_STYLE = os.environ.get('NEWS_DIAGRAM_STYLE', '')
 
 # Codex runtime uses saved CLI authentication, not a copied API key.
 CODEX_BIN = os.environ.get('CODEX_BIN', 'codex')

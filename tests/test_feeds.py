@@ -63,6 +63,7 @@ def test_unrecognized_xml_is_reported_as_failure(monkeypatch):
 @pytest.mark.parametrize('selected,expected', [
     ('lobsters', 'Lobsters'), ('simonwillison', 'Simon Willison'), ('infoq', 'InfoQ'),
     ('openai', 'OpenAI'), ('anthropic', 'Anthropic'), ('deepseek', 'DeepSeek'),
+    ('linuxdo', 'Linux DO'), ('reddit', 'Reddit Technology'),
 ])
 def test_new_sources_can_be_refreshed_individually(monkeypatch, selected, expected):
     monkeypatch.setitem(codex_agent._bindings, 'reader', {'chat_id': '123', 'session_id': 1})
@@ -71,6 +72,20 @@ def test_new_sources_can_be_refreshed_individually(monkeypatch, selected, expect
     result = codex_agent._tool('reader', 'news_refresh', {'source': selected})
     assert [r['source'] for r in result] == [expected]
     assert len(requests) == 1
+
+
+def test_reddit_keeps_original_reporting_links_and_post_date(monkeypatch):
+    feed_response(monkeypatch, '''<feed xmlns="http://www.w3.org/2005/Atom"><entry>
+      <title>Discussion</title><link href="https://www.reddit.com/r/technology/comments/test/post/"/>
+      <published>2026-10-11T08:00:00Z</published><content type="html">
+      &lt;a href="https://publisher.example/news"&gt;[link]&lt;/a&gt;
+      &lt;a href="https://www.reddit.com/r/technology/comments/test/post/"&gt;[comments]&lt;/a&gt;
+      </content></entry></feed>''', [])
+    title, url, desc = feeds.fetch('https://www.reddit.com/r/technology/.rss', 8)[0]
+    assert url.startswith('https://www.reddit.com/')
+    assert '2026-10-11T08:00:00Z' in desc
+    assert '帖子链接的原始资料：https://publisher.example/news' in desc
+    assert desc.count('帖子链接的原始资料：') == 1
 
 
 def test_collector_deduplicates_across_sources_and_continues_after_failure(database, monkeypatch):

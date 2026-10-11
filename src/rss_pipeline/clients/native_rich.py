@@ -7,6 +7,7 @@ import random
 import html
 import threading
 import time
+import json
 
 import httpx
 
@@ -39,11 +40,24 @@ def _call(method, **params):
     timeout = params.pop("_timeout", 30)
     api = f'https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}'
     params = {k: v for k, v in params.items() if v is not None}
+    files = {}
+    if params.get('rich_message'):
+        from .. import diagrams
+        rich_body = dict(params['rich_message'])
+        media, files = diagrams.attachments(json.dumps(rich_body, ensure_ascii=False), chat_id=params.get('chat_id'))
+        if media:
+            rich_body['media'] = media
+            params['rich_message'] = rich_body
     for attempt in range(3):
         if method == 'sendRichMessageDraft':
             _pace_draft(params['chat_id'])
         try:
-            response = http.post(f'{api}/{method}', json=params, timeout=timeout)
+            if files:
+                fields = {key: json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list, bool))
+                          else str(value) for key, value in params.items()}
+                response = http.post(f'{api}/{method}', data=fields, files=files, timeout=timeout)
+            else:
+                response = http.post(f'{api}/{method}', json=params, timeout=timeout)
         except httpx.HTTPError:
             # Final delivery may have succeeded before a timeout: do not duplicate it.
             raise NativeRichError(f'Telegram {method}: network failure; delivery is unconfirmed', unconfirmed=True) from None

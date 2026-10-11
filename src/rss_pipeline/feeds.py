@@ -2,6 +2,7 @@
 import re
 import html
 import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from . import config
 from .clients import http
@@ -9,6 +10,22 @@ from . import official_sources
 
 TIMEOUT = 30
 ATOM = '{http://www.w3.org/2005/Atom}'
+
+
+class _OriginalLinks(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != 'a':
+            return
+        url = dict(attrs).get('href') or ''
+        parsed = urlsplit(url)
+        if parsed.scheme in ('http', 'https') and parsed.hostname and not (
+                parsed.hostname == 'reddit.com' or parsed.hostname.endswith('.reddit.com')):
+            if url not in self.links:
+                self.links.append(url)
 
 
 def _strip_html(s):
@@ -54,6 +71,11 @@ def fetch(route, limit):
                          and link.get('href')), None)
             article_url = _article_url(url, link.get('href') if link is not None else '')
             desc = _text(it.find(f'{ATOM}summary')) or _text(it.find(f'{ATOM}content'))
+            if urlsplit(url).hostname == 'www.reddit.com':
+                links = _OriginalLinks()
+                links.feed(it.findtext(f'{ATOM}content') or '')
+                published = it.findtext(f'{ATOM}published') or it.findtext(f'{ATOM}updated') or ''
+                desc = '\n'.join(filter(None, [published, desc, *['帖子链接的原始资料：' + link for link in links.links[:3]]]))
         else:
             title = _text(it.find('title'))
             article_url = _article_url(url, it.findtext('link'))

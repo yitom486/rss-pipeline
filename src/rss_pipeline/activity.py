@@ -8,6 +8,7 @@ LABELS = {
     'news_save_report': '保存详细报告', 'news_get_report': '读取历史报告',
     'news_rich_layout': '准备阅读操作', 'news_queue_digest': '保存这篇资讯的解读',
     'news_export_report': '生成可下载报告',
+    'news_diagram_guide': '读取绘图设计规则', 'news_draw_diagram': '绘制并检查资讯示意图',
 }
 
 

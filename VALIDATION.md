@@ -1,5 +1,15 @@
 # 开发与验证记录
 
+## 2026-10-11：全局 diagram-design、渲染上传与社区来源
+
+- 按用户给定仓库，使用 skill-installer 将 `cathrynlavery/diagram-design` 的 `skills/diagram-design` 安装到 `/root/.codex/skills/diagram-design`，quick_validate 通过。全局 skill 在后续回合发现；不是在资讯仓库内复制第三方源码。
+- 新增 `news_diagram_guide` / `news_draw_diagram`：加载全局规则与对应图型参考，模型生成静态 HTML+SVG，由应用执行 skill self_check、Playwright 导出 PNG；不开放运行时 shell，不用 Mermaid，图稿标为 AI 示意。首次风格确认尚无用户答复，`NEWS_DIAGRAM_STYLE` 留空时工具明确返回未就绪，继续文字解读，不能宣称自动配图已启用。
+- 宿主经依赖安装授权提供 Playwright、Chromium、运行库及中文字体。渲染禁用 JavaScript 与外部请求，使用系统字体回退；修复禁用脚本时 add_style_tag 回调不完成的问题，改为 HTML 解析前加入本地样式。真实导出 skill 自带 flowchart 示例 PNG（108073 字节），视觉检查通过；这是既有图例导出验证，不是新资讯图稿或 Telegram 显示验收。
+- 图稿和 PNG 存在运行时 SQLite，按聊天归属校验；资讯提交还校验图来自当前任务。原生传输将 PNG 作为 multipart rich_message.media 上传，嵌入同一条草稿/正式消息；429 复用相同数据，未确认发送不盲目重试。没有发送独立测试图片或资讯。
+- Linux DO 官方 latest.rss 和 Reddit r/technology Atom 加入来源目录，并增加社区点评规则。Reddit 实际取得三条候选；保留帖子链接、发布时间与原始报道链接，供读帖后补读，不能编造未读取的评论。Linux DO 的 latest.rss、top.rss?period=daily、posts.rss 均返回 Cloudflare 403，配置加入不等于取源成功；保持明确失败、继续其他来源，可由 LINUXDO_FEED_URL 配置用户有权访问的 feed。
+- `uv run pytest -q`：78 项通过；覆盖新来源单独查询、Reddit 原始资料链接保留、图稿归属/任务限制、绘图前资料与规则前置条件、未确认风格不选默认、非法图稿拒绝和原生 multipart 同消息上传及限流重试。运行时 skill quick_validate 与 git diff --check 通过。
+- 本轮没有调用模型绘制新资讯图，也没有验证真实 Telegram multipart 图片解析；只完成真实 PNG 导出和离线传输验证。用户确认配色后才能验收完整自动绘图与消息显示。
+
 ## 2026-10-11：资讯归属分区与原图取材
 
 - 用户要求更明确地区分资讯介绍和 AI 的背景、深入解析、扩展思考。完整资讯增加“资讯内容”与“AI 解读”两个可识别区域：原文事实简洁展示，AI 理解先用短引用块提示，较长解读放在标明归属的单层折叠块。内部章节与长度仍由内容决定，简单追问不套用完整结构。

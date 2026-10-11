@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import threading
 
-from . import config, db, material, feeds, activity, prompts
+from . import config, db, material, feeds, activity, prompts, diagrams
 from .clients.codex import AppServer, CodexError
 
 _server = None
@@ -20,7 +20,11 @@ def _spec(name, description, properties=None, required=None):
 
 
 TOOLS = [
-    _spec('news_refresh', '实时读取配置来源，返回条目与明确的抓取错误，不另外发送通知。source 可选 all、hackernews、github、lobsters、simonwillison、infoq、openai、anthropic、deepseek。',
+    _spec('news_diagram_guide', '需要画图时先读取全局 diagram-design 的设计规则和对应图型，不使用 Mermaid。',
+          {'kind': {'type': 'string', 'enum': list(diagrams.TYPES)}}, ['kind']),
+    _spec('news_draw_diagram', '将依据 diagram-design 写出的静态 HTML+SVG 验证并渲染为 PNG，返回本任务可嵌入消息的图片引用；不立即发送消息。先调用 news_diagram_guide。',
+          {'title': {'type': 'string', 'maxLength': 120}, 'html': {'type': 'string', 'maxLength': 100000}}, ['title', 'html']),
+    _spec('news_refresh', '实时读取配置来源，返回条目与明确的抓取错误，不另外发送通知。source 可选 all、hackernews、github、lobsters、simonwillison、infoq、openai、anthropic、deepseek、linuxdo、reddit。',
           {'source': {'type': 'string', 'enum': ['all', *config.SOURCE_KEYS.values()]}}),
     _spec('news_search', '按关键词搜索已采集资讯，返回真实条目。',
           {'keyword': {'type': 'string'}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20}}, ['keyword']),
@@ -46,7 +50,8 @@ QUEUE_TOOL = _spec('news_queue_digest', '定时资讯任务专用：将本轮来
                    {'url': {'type': 'string', 'maxLength': 2048},
                     'title': {'type': 'string', 'maxLength': 200},
                     'summary': {'type': 'string'}}, ['url', 'title', 'summary'])
-COLLECTOR_TOOLS = [s for s in TOOLS if s['name'] in ('news_refresh', 'news_read_url', 'news_preferences')] + [QUEUE_TOOL]
+COLLECTOR_TOOLS = [s for s in TOOLS if s['name'] in ('news_refresh', 'news_read_url', 'news_preferences',
+                                                  'news_diagram_guide', 'news_draw_diagram')] + [QUEUE_TOOL]
 
 
 def _validate(spec, args):
@@ -75,6 +80,19 @@ def _tool(thread_id, name, args):
         raise ValueError('Unknown tool')
     _validate(spec, args)
     chat_id, session_id = binding['chat_id'], binding['session_id']
+    if name == 'news_diagram_guide':
+        result = diagrams.guide(args['kind'])
+        if result['ready']:
+            binding['diagram_guide_read'] = True
+        return result
+    if name == 'news_draw_diagram':
+        if not binding.get('diagram_guide_read'):
+            raise ValueError('Read diagram-design guidance before drawing')
+        if binding.get('collector') and not binding.get('read_urls'):
+            raise ValueError('Read source evidence before drawing')
+        if len(binding.get('diagrams', [])) >= (6 if binding.get('collector') else 2):
+            raise ValueError('Diagram budget reached')
+        return diagrams.save(binding, args['title'], args['html'])
     if name == 'news_refresh':
         results = []
         seen = set()
@@ -167,6 +185,7 @@ def _queue_digest(binding, args):
         raise ValueError('Read a real source before queuing')
     if not args['title'].strip() or not args['summary'].strip():
         raise ValueError('Empty digest')
+    diagrams.attachments(args['summary'], chat_id=binding['chat_id'], allowed=binding.get('diagrams', []))
     source, title, desc = candidate
     with db.conn() as c:
         if db.url_exists(c, args['url']):

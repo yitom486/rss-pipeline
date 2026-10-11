@@ -43,6 +43,10 @@ flowchart TD
 
 2026-10-10 新增 OpenAI、Anthropic、DeepSeek 官方来源。OpenAI 直接读取官方 RSS，保留发布日期和分类，取 24 条候选以覆盖被客户案例挤到后面的研究和技术文章；Anthropic 直接解析研究、工程、新闻三个官方索引，各取四条候选；DeepSeek 从官方 Research & News 取十条发布/研究候选，包括官网列出的 arXiv 论文和官方 GitHub 项目。HTML 索引以有明确标题的文章卡片为准，排除导航与页脚，并按可识别的发布日期排序；未注明日期的精选卡保留，但不声称刚发布。索引结构变化且无文章时明确失败，不假装成功。官方文章优先研究、工程和重要更新，降低一般商业宣传优先级；厂商主张不等同于独立验证。所有来源仍合计每轮最多六篇。
 
+2026-10-11 新增 Linux DO 官方 `latest.rss` 和 Reddit `r/technology/.rss`，分别可用 `source=linuxdo` / `reddit` 查询。Reddit RSS 已验证可取得候选，保留原始报道链接与发布时间供补读和点评；个人评论不等于独立事实。Linux DO 在本服务器返回 Cloudflare 403，配置已加入但尚未取源验收成功；失败继续其他来源，可通过 `LINUXDO_FEED_URL` 配置用户可访问的授权 feed，不静默改用第三方镜像。
+
+关键示意图使用全局 [diagram-design](https://github.com/cathrynlavery/diagram-design)，不使用 Mermaid 作为资讯绘图输出。首次确认风格后设置 `NEWS_DIAGRAM_STYLE=default` 或 `blue`；模型读取图型规则并写静态 HTML+SVG，由应用检查、渲染 PNG 并嵌入同一条原生消息。宿主需执行 `uv sync` 和 `uv run playwright install --with-deps chromium` 预先提供浏览器，运行时不会自行安装依赖。使用本地系统字体与中文回退，图片不是原文配图或 AI 位图生成；图稿和图片不提交 Git。现有旧会话可能没有新增绘图工具，新建会话/定时采集可加载新目录；不会为添加工具偷偷替换原会话。
+
 `news_refresh` 可使用 `source=all` 或单独指定 `hackernews` / `github` / `lobsters` / `simonwillison` / `infoq` / `openai` / `anthropic` / `deepseek`。旧会话若仍保留旧工具目录，使用 `all` 也能读取新增来源，无需重建会话。公开来源连通性检查：`uv run python scripts/feed_probe.py`，不调用 Codex、不写数据库、不发送 Telegram 消息。
 
 官方来源候选检查：`uv run python scripts/company_news.py`，只读取来源；用户明确要求补推时可运行 `uv run python scripts/company_news.py --send`，通过采集锁与真实编辑工具只选择这三家公司，每家公司最多两篇、合计最多六篇，逐篇保存并推送，既有 URL 不重发。论文取材当前仅支持网页，取得 arXiv 摘要不等于读过 PDF 全文。

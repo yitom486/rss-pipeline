@@ -110,6 +110,10 @@ def stats(c):
 
 
 ASSISTANT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS diagram_assets (
+    id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, title TEXT NOT NULL,
+    html TEXT NOT NULL, png BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id TEXT NOT NULL, name TEXT NOT NULL, thread_id TEXT,

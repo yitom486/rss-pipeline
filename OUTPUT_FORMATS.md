@@ -71,10 +71,10 @@ sequenceDiagram
 | 长报告 | 保存完整 Markdown 到 SQLite，可继续修订和分页阅读 |
 | 可下载报告 | 用户要求时通过 sendDocument 发送 UTF-8 `.md` 文件，或 `/export 编号` |
 | 来源图片链接 | 网页提取保留正文图片候选、图注属性和邻近文字；根据原文说明选择有帮助的真实公开图片，独立媒体块展示，不猜 URL、不臆测未视觉读取的画面 |
-| 图表与 Mermaid | Markdown 可保存真实数据表、媒体链接及 Mermaid 源码；没有内置图表渲染工具 |
+| 流程、架构与关系图 | 全局 diagram-design 规则指导静态 HTML+SVG；应用 self_check 验证、Playwright 渲染 PNG，原生 multipart media 嵌入同一条消息；首次配色须确认，不用 Mermaid |
 | 上传图片、PDF、音视频 | 尚未接入理解或提取内容；机器人明确提示当前范围 |
 | 新图像、PDF、Word | 尚无生成/导出工具，不能声称已经制作 |
 
-制作报告时先读实际来源、核对数据、区分来源事实与分析，再保存；用户要求文件时导出。文件交付是报告附件，消息正文仍使用原生富文本。若未来加入 PDF/Word、图表渲染或图片分析，应增加相应工具、文件归属与格式校验，并验证真实文件可打开后才标记为支持。
+制作报告时先读实际来源、核对数据、区分来源事实与分析，再保存；用户要求文件时导出。文件交付是报告附件，消息正文仍使用原生富文本。图稿标为 AI 示意，不声称是原文图片或独立测试结果。图稿和 PNG 按用户归属存入 SQLite，提交时验证任务归属，发送超时不重复推送。若未来加入 PDF/Word 或图片分析，应增加相应工具、文件归属与格式校验，并验证实际输出后才标记为支持。
 
 协议依据：[Codex App Server 事件与动态工具](https://learn.chatgpt.com/docs/app-server)、[Telegram 原生流式草稿](https://core.telegram.org/bots/api#sendrichmessagedraft)、[Telegram 文档发送](https://core.telegram.org/bots/api#senddocument)。
